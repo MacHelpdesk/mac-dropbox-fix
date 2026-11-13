@@ -1,0 +1,56 @@
+Date/Time:         2026-01-01 00:00:00 +0000, (0.0)
+OS Version:        00A000
+FP Version:        0000.00.00
+uid:               501
+
+
+5 providers, filtered by 'com.getdropbox.dropbox.fileprovider/N{35}r'
+=====================================================
+com.getdropbox.dropbox.fileprovider
+=====================================================
+  + version: none
+  + supports enumeration: 1
+  + supports FPFS: 1
+  + display name: Dropbox
+  + bundle URL: /Applications/Dropbox.app/Contents/PlugIns/DropboxFileProvider.appex
+
+-----------------------------------------------------
+domain: (default) (hidden)
+-----------------------------------------------------
+ no process observed; grace period timer not running
+  + features: 
+  + no root
+  + indexer:
+
+-----------------------------------------------------
+domain: 0{34}0
+-----------------------------------------------------
+ observing:{process [1000]}; grace period timer not running
+[32m alive (2000) via ExtensionKit for:[39m
+     servicer for Dropbox
+  + features: repl,
+  + root: <FPFS>/D{5}x
+  + indexer:
+domain: com.getdropbox.dropbox.fileprovider/0{34}0
+      spDomainID:     00000000-0000-0000-0000-000000000000
+      enabled:        yes
+      indexing:       yes
+      needs-auth:     no
+      needs-indexing: yes
+      + drop info:
+         drops-since-start: 0
+         index-is-dropped:  no
+         last-drop-date:    2026-01-01 00:00:00 +0000
+         last-drop-reason:  Error while indexing a batch
+      errors:         0
+      batch-indexed (since last startup): 23
+      anchor: <00000000-0000-0000-0000-000000000000 update:0 deletions:0>
+      pending-indexable-count: 0 (updates: 0, undownloaded: 0, overlap: 0, deletions: 0)
+      total-indexable-count: 1282895 (donatable: 1282895, deletions: 0)
+      + spotlight donation progress: <none>
+
+
+== CloudStorage xattrs ==
+=========================
+Dropbox
+    com.apple.file-provider-domain-id: com.getdropbox.dropbox.fileprovider/00000000-0000-0000-0000-000000000000

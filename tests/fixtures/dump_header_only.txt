@@ -1,0 +1,24 @@
+Date/Time:         2026-01-01 00:00:00 +0000, (0.0)
+OS Version:        00A000
+FP Version:        0000.00.00
+uid:               501
+
+
+5 providers, filtered by 'com.getdropbox.dropbox.fileprovider/N{35}r'
+=====================================================
+com.getdropbox.dropbox.fileprovider
+=====================================================
+  + version: none
+  + supports enumeration: 1
+  + supports FPFS: 1
+  + display name: Dropbox
+  + bundle URL: /Applications/Dropbox.app/Contents/PlugIns/DropboxFileProvider.appex
+
+-----------------------------------------------------
+domain: (default) (hidden)
+-----------------------------------------------------
+ no process observed; grace period timer not running
+  + features: 
+  + no root
+  + indexer:
+

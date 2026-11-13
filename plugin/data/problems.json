@@ -1,0 +1,300 @@
+{
+  "schema_version": 1,
+  "about": "Dropbox 在 Mac 上不同步時的已知問題。每一筆寫明：看得到的症狀、probe 量得到的訊號、原因、解法（誰可以動手）、試過無效的做法、這一筆驗證到哪裡。problems 的順序就是比對的優先順序。",
+  "signals": {
+    "dropbox_app": {
+      "description": "Dropbox 主程式有沒有在執行",
+      "values": ["running", "not_running"]
+    },
+    "dropbox_extension": {
+      "description": "Dropbox 的 File Provider 延伸（DropboxFileProvider.appex）有沒有在執行。實際搬檔案的是它，不是主程式",
+      "values": ["running", "not_running"]
+    },
+    "fileproviderd": {
+      "description": "macOS 的 File Provider daemon 有沒有在執行",
+      "values": ["running", "not_running"]
+    },
+    "stray_sqlite3": {
+      "description": "指令列提到 nucleus.sqlite3 的 sqlite3 程序數量",
+      "values": "number"
+    },
+    "dump_result": {
+      "description": "fileproviderctl dump 有沒有在時限內印到 probe 要讀的欄位。ok：有，而且列出了 Dropbox 這個 provider；no_provider：有，但沒有列出 Dropbox；failed：dump 指令以錯誤結束；timeout：時限內沒有印到那些欄位，不論前面印了什麼",
+      "values": ["ok", "no_provider", "failed", "timeout"]
+    },
+    "domain_count": {
+      "description": "Dropbox 註冊了幾個 domain（連結兩個帳號時會有兩個）。讀不到 Domains.plist 時沒有這一行。超過一個時 probe 不讀 domain 的狀態",
+      "values": "number"
+    },
+    "domain_state": {
+      "description": "Dropbox domain 在 fileproviderd 裡的狀態。alive：延伸在服務它；startup_failed：啟動失敗；no_process：已註冊但沒有程序在服務；absent：沒有這個 domain；unknown：讀不到，或有超過一個 domain",
+      "values": ["alive", "startup_failed", "no_process", "absent", "unknown"]
+    },
+    "domain_startup_error": {
+      "description": "domain 啟動失敗時的錯誤。sqlite_locked：SqliteErrorDomain 5（database is locked）；other：其他錯誤；none：沒有啟動錯誤。domain_state 是 unknown 或 absent 時沒有這一行",
+      "values": ["sqlite_locked", "other", "none"]
+    },
+    "needs_auth": {
+      "description": "domain 是否回報需要重新登入",
+      "values": ["yes", "no", "unknown"]
+    },
+    "index_dropped": {
+      "description": "Spotlight 索引是否處於被丟棄的狀態",
+      "values": ["yes", "no", "unknown"]
+    },
+    "sync_anchor_drop": {
+      "description": "Spotlight 索引上一次被丟棄的原因（last-drop-reason）是否提到 sync anchor。這個欄位記的是過去發生過的事，會一直留著；要搭配 index_dropped 與 last_drop_date 看",
+      "values": ["yes", "no", "unknown"]
+    },
+    "last_drop_reason": {
+      "description": "last-drop-reason 的原文，給人讀的；比對用 sync_anchor_drop",
+      "values": "text"
+    },
+    "last_drop_date": {
+      "description": "Spotlight 索引上一次被丟棄的時間（last-drop-date）的原文，給人讀的",
+      "values": "text"
+    },
+    "pending_indexable": {
+      "description": "還沒交給 Spotlight 索引的項目數（pending-indexable-count）。系統很忙時 fileproviderd 會回報逾時而不是數字，這時沒有這一行",
+      "values": "number"
+    },
+    "total_indexable": {
+      "description": "可索引的項目總數（total-indexable-count）",
+      "values": "number"
+    }
+  },
+  "never": [
+    {
+      "action": "直接操作 Dropbox 自己的資料庫 nucleus.sqlite3：複製、搬移、換檔，或對運作中的檔案執行 sqlite3",
+      "reason": "先前的事故紀錄：這樣做之後 Dropbox 的延伸卡在與 fileproviderd 的同步呼叫上，重啟與重開機都救不回來，只能解除帳號連結重新登入"
+    },
+    {
+      "action": "刪除或修改 ~/Library/Application Support/FileProvider/ 底下的任何檔案",
+      "reason": "那是 macOS 記錄每個雲端資料夾狀態的資料庫，不屬於 Dropbox，也不只 Dropbox 在用"
+    },
+    {
+      "action": "代替使用者解除 Dropbox 帳號連結、登出或重新登入",
+      "reason": "會重建整份同步狀態並重新掃描全部檔案，要由使用者自己決定並在 Dropbox 的視窗裡操作"
+    },
+    {
+      "action": "使用 sudo、關閉 SIP，或對別的使用者的程序送訊號",
+      "reason": "這個工具處理的每一種問題都不需要管理者權限"
+    }
+  ],
+  "problems": [
+    {
+      "id": "dropbox-app-not-running",
+      "title": "Dropbox 沒有在執行",
+      "symptoms": [
+        "選單列沒有 Dropbox 圖示",
+        "Dropbox 資料夾還在，但新檔案不會上傳"
+      ],
+      "match": {
+        "all": [
+          { "signal": "dropbox_app", "op": "equals", "value": "not_running" }
+        ]
+      },
+      "cause": "主程式沒開。延伸由主程式與 fileproviderd 帶起來，主程式不在時 domain 會顯示沒有程序在服務。",
+      "fixes": [
+        {
+          "id": "open-dropbox",
+          "action": "啟動 Dropbox",
+          "class": "direct",
+          "command": "open -a Dropbox",
+          "verify": "一分鐘後再量一次，dropbox_app 與 dropbox_extension 都是 running",
+          "evidence": "unverified"
+        }
+      ],
+      "evidence": {
+        "status": "unverified",
+        "note": "這一筆是為了不把「沒開 Dropbox」誤判成別的問題而列的，還沒有用這個工具實測過"
+      }
+    },
+    {
+      "id": "stray-sqlite3-on-nucleus",
+      "title": "有 sqlite3 程序的指令列指向 Dropbox 的資料庫",
+      "symptoms": [
+        "同步卡住，CPU 異常高",
+        "先前有人或某個腳本對 nucleus.sqlite3 執行過 sqlite3"
+      ],
+      "match": {
+        "all": [
+          { "signal": "stray_sqlite3", "op": "gte", "value": 1 }
+        ]
+      },
+      "cause": "先前的事故紀錄：外部的 sqlite3 程序開著 Dropbox 的資料庫時，可能握著鎖讓 Dropbox 寫不進去。probe 只看得到指令列，看不到它是不是真的握著鎖。",
+      "confirm": [
+        "pgrep -fl 'sqlite3.*nucleus'"
+      ],
+      "fixes": [
+        {
+          "id": "end-stray-sqlite3",
+          "action": "結束那幾個 sqlite3 程序（一般的結束訊號，不用 -9）",
+          "class": "ask",
+          "side_effects": "那些程序正在做的查詢會中斷。先把程序清單給使用者看，確認不是他正在用的",
+          "verify": "再量一次，stray_sqlite3 是 0，幾分鐘後同步數字開始變動",
+          "evidence": "reported"
+        }
+      ],
+      "evidence": {
+        "status": "reported",
+        "note": "來自先前的事故紀錄；步驟沒有用這個工具重新實測"
+      }
+    },
+    {
+      "id": "fileprovider-domain-startup-locked",
+      "title": "Dropbox 的 File Provider domain 啟動時資料庫被鎖，啟動失敗",
+      "symptoms": [
+        "Dropbox 顯示同步中但數字完全不動，或一直停在同一個狀態",
+        "Dropbox 主程式的 CPU 接近 0",
+        "找不到 DropboxFileProvider 程序",
+        "發生在當機、強制關機或 kernel panic 之後的第一次開機"
+      ],
+      "match": {
+        "all": [
+          { "signal": "domain_state", "op": "equals", "value": "startup_failed" },
+          { "signal": "domain_startup_error", "op": "equals", "value": "sqlite_locked" }
+        ]
+      },
+      "cause": "fileproviderd 替每個雲端資料夾維護一份自己的資料庫。實測看到的：不正常關機後第一次開機，fileproviderd 的 log 裡同一個 domain 相隔二十多秒啟動了兩次，後一次兩度回報「the database is still locked, retrying」之後放棄；之後 domain 一直停在錯誤狀態，延伸沒有被叫起來；當時開著那份資料庫的只有 fileproviderd 自己，沒有外部程序可以結束。推論的：第二次啟動的時間與系統重新註冊 Dropbox 延伸的時間相同，可能是它觸發的；前一次啟動可能還在做關機後的復原。只看過這一次，兩次啟動相撞的完整過程沒有再驗證。",
+      "confirm": [
+        "log show --last 3h --predicate 'process == \"fileproviderd\" AND eventMessage CONTAINS \"database is still locked\"'"
+      ],
+      "fixes": [
+        {
+          "id": "restart-fileproviderd",
+          "action": "結束目前使用者的 fileproviderd，讓 launchd 重新啟動它，domain 會重跑一次啟動",
+          "class": "ask",
+          "command": "dropbox-fix.sh restart-fileproviderd",
+          "side_effects": "iCloud 雲碟、Google Drive、OneDrive 這些同一個 daemon 管的雲端資料夾會跟著中斷幾秒再重連。不動任何資料庫檔，不動 Dropbox 的帳號連結",
+          "verify": "一兩分鐘後再量一次，domain_state 是 alive，dropbox_extension 是 running",
+          "evidence": "verified"
+        },
+        {
+          "id": "reboot",
+          "action": "重新開機",
+          "class": "user",
+          "side_effects": "所有程式都要重開",
+          "evidence": "unverified"
+        }
+      ],
+      "not_fixes": [
+        {
+          "action": "重新啟動 Dropbox 主程式",
+          "observed": "實測時 Dropbox 是在 domain 啟動失敗之後才開的，domain 仍停在錯誤狀態"
+        },
+        {
+          "action": "launchctl kickstart -k gui/<uid>/com.apple.FileProvider",
+          "observed": "被 SIP 擋下，結束碼 150（Operation not permitted while System Integrity Protection is engaged）"
+        }
+      ],
+      "evidence": {
+        "status": "verified",
+        "date": "2026-11-13",
+        "macos": "27.3",
+        "dropbox": "280.3.5012",
+        "note": "kernel panic 重開後發生。送出結束訊號後 12 秒內出現新的 fileproviderd，延伸隨後被叫起來，使用者確認同步恢復。只實測過這一次"
+      }
+    },
+    {
+      "id": "fileprovider-xpc-deadlock",
+      "title": "Dropbox 的延伸卡在與 fileproviderd 的同步呼叫上",
+      "symptoms": [
+        "DropboxFileProvider 啟動後短暫高 CPU，幾十秒後掉回 0",
+        "同步完全停止，重啟 Dropbox、重開機都無效",
+        "fileproviderctl dump 對 Dropbox 的 domain 一直沒有回應",
+        "先前有人直接動過 nucleus.sqlite3"
+      ],
+      "match": {
+        "all": [
+          { "signal": "dropbox_extension", "op": "equals", "value": "running" },
+          { "signal": "dump_result", "op": "equals", "value": "timeout" }
+        ]
+      },
+      "cause": "先前的事故紀錄：手動置換 nucleus.sqlite3 破壞了資料庫與 WAL 的一致性，延伸的佇列在對 fileproviderd 的同步 XPC 呼叫上永久阻塞。",
+      "confirm": [
+        "sample $(pgrep -f 'DropboxFileProvider.appex/Contents/MacOS/DropboxFileProvider' | head -1) 1"
+      ],
+      "fixes": [
+        {
+          "id": "relink-account",
+          "action": "在 Dropbox 的偏好設定解除這台電腦的帳號連結，再重新登入",
+          "class": "user",
+          "side_effects": "Dropbox 會重建整份同步狀態並重新掃描全部檔案，檔案多時要幾小時到幾天。動手前請使用者先確認重要的檔案在 dropbox.com 上看得到",
+          "evidence": "reported"
+        }
+      ],
+      "not_fixes": [
+        {
+          "action": "結束 DropboxFileProvider、重啟 Dropbox、重新開機",
+          "observed": "先前的事故紀錄寫明三者都無效"
+        }
+      ],
+      "evidence": {
+        "status": "reported",
+        "date": "2026-02-13",
+        "note": "來自先前的事故紀錄，當時的 macOS 與 Dropbox 版本較舊。訊號只看「延伸在跑而 dump 沒有回應」，比對到之後要用 confirm 的指令看延伸是不是真的卡在 mach_msg，才能下這個判斷。系統很忙時 dump 也可能只是慢"
+      }
+    },
+    {
+      "id": "sync-anchor-dropped",
+      "title": "線索：索引因為拿不到 sync anchor 被丟棄，而且現在仍是丟棄狀態",
+      "symptoms": [
+        "平常同步正常，某天開始數字完全不動",
+        "發生在同步進行中強制關機、macOS 更新或 Dropbox 升級之後"
+      ],
+      "match": {
+        "all": [
+          { "signal": "sync_anchor_drop", "op": "equals", "value": "yes" },
+          { "signal": "index_dropped", "op": "equals", "value": "yes" }
+        ]
+      },
+      "cause": "先前的事故紀錄：fileproviderd 記錄進度的指標（sync anchor）損壞之後，同步停下來，不會自己恢復。這一筆是線索，不是結論：probe 讀到的是 Spotlight 索引那一側的欄位，它本身不證明檔案同步停了。要另外確認檔案真的沒有在上傳下載（例如放一個小檔案進去，幾分鐘後在 dropbox.com 上看不到），才考慮下面的解法。",
+      "fixes": [
+        {
+          "id": "relink-account",
+          "action": "在 Dropbox 的偏好設定解除這台電腦的帳號連結，再重新登入",
+          "class": "user",
+          "side_effects": "Dropbox 會重建整份同步狀態並重新掃描全部檔案，檔案多時要幾小時到幾天。動手前請使用者先確認重要的檔案在 dropbox.com 上看得到",
+          "evidence": "reported"
+        }
+      ],
+      "evidence": {
+        "status": "reported",
+        "note": "來自先前的事故紀錄；last-drop-reason 的確切文字「Unable to fetch sync anchor」沒有用這個工具重新看到過，當時 index-is-dropped 是不是 yes 也沒有記錄。只有原因文字、而索引不在丟棄狀態時不會比對到：那個欄位會一直留著過去的值"
+      }
+    },
+    {
+      "id": "spotlight-reindex-after-unclean-shutdown",
+      "title": "File Provider 正在重建 Spotlight 索引：fileproviderd 很忙，但這不是同步卡住的證據",
+      "symptoms": [
+        "fileproviderd、corespotlightd、mds_stores 的 CPU 很高",
+        "Dropbox 資料夾反應變慢，但檔案仍在上傳下載"
+      ],
+      "match": {
+        "all": [
+          { "signal": "domain_state", "op": "equals", "value": "alive" },
+          { "signal": "pending_indexable", "op": "gte", "value": 10000 }
+        ]
+      },
+      "cause": "不正常關機後，fileproviderd 把 Dropbox 資料夾的項目重新交給 Spotlight 索引，項目多時要跑很久。這跟檔案同步是兩件事：這一筆只說明 fileproviderd 為什麼忙，不代表同步正常，probe 沒有量同步本身。",
+      "fixes": [
+        {
+          "id": "measure-again",
+          "action": "不動手。隔幾分鐘再量一次 pending_indexable，確認數字在下降",
+          "class": "direct",
+          "command": "dropbox-fix.sh probe",
+          "verify": "pending_indexable 比上一次小",
+          "evidence": "verified"
+        }
+      ],
+      "evidence": {
+        "status": "verified",
+        "date": "2026-11-13",
+        "macos": "27.3",
+        "dropbox": "280.3.5012",
+        "note": "約 128 萬個可索引項目；四次量測的待索引數依序是 734,720、604,320、602,720、547,926，前後約半小時。沒有量到它跑完要多久。系統很忙時 fileproviderd 回報逾時而不是數字，這時這一筆比對不到，隔幾分鐘再量"
+      }
+    }
+  ]
+}
