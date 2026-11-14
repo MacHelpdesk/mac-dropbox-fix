@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.2.0 — 2026-11-14
+
+在 Dropbox 資料夾裡動檔案之前，先確認檔案在不在這台 Mac 上（#2）。
+
+### Skill
+
+- 新增 `dropbox-use`：整理、複製、搬移 Dropbox 資料夾裡的一批檔案之前，先用 `local-status` 量；有僅線上的檔案時，說明檔數、大小、剩餘空間與「下載後仍可能被回收」，使用者同意才 `download`。行為界線是四張封閉列舉的表；複製方法逐項標驗證狀態。
+- `dropbox-fix` 不變。
+
+### Scripts
+
+- `dropbox-fix.sh local-status PATH`：只讀。印出 `files`、`online_only`、`online_only_bytes`、`free_bytes`；以 `dataless` flag 判斷僅線上，不看大小。
+- `dropbox-fix.sh download PATH`：逐檔讀取，讓 File Provider 下載。剩餘空間不夠時一個檔都不讀（結束碼 4）；每檔讀取上限 `DROPBOX_FIX_READ_WAIT` 秒（預設 300），逾時先 TERM、有上限地等，再 KILL；上一輪有檔案下載成功才重試，最多三輪；連續三次逾時就停（`stopped=timeouts`）；仍僅線上的檔逐一列出（結束碼 2）；每讀一個檔在 stderr 印進度。
+- 兩個子命令都只接受 `~/Library/CloudStorage` 底下 Dropbox 資料夾裡的路徑。
+- 印出的路徑裡，控制字元換成 `?`，檔名不能在輸出裡多造一行（提交後的安全審查抓到的）。
+- 用法說明改成印到檔頭清單結束為止，不再寫死行號。
+
+### 實測範圍
+
+macOS 27.3、Dropbox 280.3.5020，維護者 Dropbox 裡的測試資料夾（2026-11-14）。
+
+- 已實測：`local-status` 在設為僅供線上存取的 5 個檔上量到 `online_only=5`；`download` 下載 5 個檔、200 MB，712 秒，結束碼 0，沒有留下讀取程序。200 MB 的檔第一輪 300 秒被停，Dropbox 在背景繼續下載，第二輪 1 秒讀完；四個小檔排在它後面，各 78 到 123 秒。
+- 已實測：`cp -p` 的副本一開始帶著原檔的 `com.dropbox.attrs`，90 秒內 Dropbox 換上它自己的，沒有出現衝突的複本；`cp -pX` 的副本同樣拿到自己的屬性。副本有沒有出現在 dropbox.com 沒在網頁上核對。
+- 已觀察：檔案「設為僅供線上存取」再下載之後，Finder 顏色標記消失（一次）。Finder 右鍵選單的文字是「設為離線存取」「設為僅供線上存取」（繁體中文介面）。
+- 只在測試裡驗過：`local-status` 與 `download` 的輸出、結束碼、空間檢查、逾時、重試與停止規則（`tests/test_local.sh` 92 項）；skill 的四張表與複製標籤（`tests/test_skill_use.sh` 27 項）。
+- 未驗證：離線時 `download` 停得下來、真的讀取停得掉；「設為離線存取」之後檔案還會不會被回收；英文介面的選單文字；其他 macOS 與 Dropbox 版本。
+
 ## 0.1.0 — 2026-11-13
 
 第一版。
