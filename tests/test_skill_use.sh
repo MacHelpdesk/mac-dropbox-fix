@@ -81,7 +81,7 @@ assert_has   "lists: local-status done directly"     "dropbox-fix.sh local-statu
 assert_lacks "lists: download not done directly"     "dropbox-fix.sh download"     "$(section "$DIRECT")"
 assert_has   "lists: download asked first"           "dropbox-fix.sh download"     "$(section "$ASK")"
 assert_lacks "lists: local-status not asked first"   "dropbox-fix.sh local-status" "$(section "$ASK")"
-assert_has   "lists: Make Available Offline by the user" "可離線使用"              "$(section "$USER_ONLY")"
+assert_has   "lists: Make Available Offline by the user" "設為離線存取"            "$(section "$USER_ONLY")"
 assert_lacks "lists: no subcommand in the user list" "dropbox-fix.sh"              "$(section "$USER_ONLY")"
 assert_has   "lists: nucleus.sqlite3 never touched"  "nucleus.sqlite3"             "$(section "$NEVER")"
 assert_lacks "lists: no subcommand in the never list" "dropbox-fix.sh"             "$(section "$NEVER")"

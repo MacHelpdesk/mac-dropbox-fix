@@ -41,7 +41,7 @@ The `local-status` and `download` subcommands of `dropbox-fix.sh` tell whether f
 
 ### Requirement: download reads online-only files until none remain
 
-`dropbox-fix.sh download PATH` SHALL read the content of every online-only file under PATH, one file at a time, and SHALL re-check the `dataless` flag after each pass. When no online-only file remains it SHALL print `downloaded=<count>` and `still_online_only=0` and exit 0. When PATH holds no online-only file it SHALL print `online_only=0`, read nothing, and exit 0.
+`dropbox-fix.sh download PATH` SHALL read the content of every online-only file under PATH, one file at a time, and SHALL re-check the `dataless` flag after each pass. When no online-only file remains it SHALL print `downloaded=<count>` and `still_online_only=0` and exit 0. When PATH holds no online-only file it SHALL print `online_only=0`, read nothing, and exit 0. Before each read it SHALL print `pass <p>, file <i>/<n>: <path>` on stderr, where `<n>` is the number of files that pass reads, and after the read one of `  done in <s>s`, `  failed after <s>s` or `  stopped after <s>s`; the path is printed as in `online_only_file=` lines. Stdout is unchanged by these lines.
 
 #### Scenario: all online-only files become local
 
@@ -53,6 +53,12 @@ The `local-status` and `download` subcommands of `dropbox-fix.sh` tell whether f
 - **GIVEN** a Dropbox folder with `a.pdf` and `sub/b.docx` online-only and `c.txt` local, where reading a file clears its `dataless` flag
 - **WHEN** `dropbox-fix.sh download <folder>` runs
 - **THEN** exactly `a.pdf` and `sub/b.docx` are read once each, stdout contains `downloaded=2` and `still_online_only=0`, and the exit code is 0
+
+##### Example: progress lines name each read and its result
+
+- **GIVEN** `DROPBOX_FIX_READ_WAIT=2`, `a.pdf` that becomes local when read, and `hang.pdf` whose read never returns
+- **WHEN** `dropbox-fix.sh download <folder>` runs
+- **THEN** stderr contains `pass 1, file 1/2: a.pdf`, a `  done in` line, `pass 1, file 2/2: hang.pdf`, and `  stopped after 2s`, and no stdout line starts with `pass `
 
 ##### Example: nothing to download
 

@@ -298,6 +298,21 @@ assert_eq  "newline name: no injected line" "" "$(printf '%s\n' "$OUT" | grep -x
 assert_no_reads_left "newline name"
 teardown
 
+# --- spec-example: dropbox-local-files / progress lines name each read and its result ---
+setup
+export DROPBOX_FIX_READ_WAIT=2
+mkfile a.pdf 1000 dataless
+mkfile hang.pdf 2000 dataless
+echo hang.pdf >> "$STUB_STATE/hang"
+ERR="$(/bin/bash "$SCRIPT" download "$DBX" 2>&1 >"$T/stdout")"
+assert_has "progress: first read named"  "pass 1, file 1/2: a.pdf"    "$ERR"
+assert_has "progress: first read done"   "  done in "                 "$ERR"
+assert_has "progress: second read named" "pass 1, file 2/2: hang.pdf" "$ERR"
+assert_has "progress: second read stopped" "  stopped after 2s"       "$ERR"
+assert_eq  "progress: nothing on stdout" "" "$(grep '^pass ' "$T/stdout")"
+assert_no_reads_left "progress"
+teardown
+
 # --- spec-example: dropbox-local-files / download with no argument ---------------------
 setup
 ERR="$(/bin/bash "$SCRIPT" download 2>&1 >/dev/null)"; rc=$?

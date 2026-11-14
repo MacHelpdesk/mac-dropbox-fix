@@ -411,7 +411,7 @@ read_one() { # file
 }
 
 download() { # path
-  local phys f remaining pass made free timeouts stopped
+  local phys f remaining pass made free timeouts stopped n i t0 rc
   [ -n "${1:-}" ] || usage
   phys="$(dropbox_path "$1")" || exit 1
   need_tmpd
@@ -437,14 +437,25 @@ download() { # path
   while [ "$pass" -lt 3 ]; do
     pass=$((pass + 1))
     made=0
+    n="$(tr -cd '\000' < "$TMPD/todo" | wc -c | tr -d ' ')"
+    i=0
     : > "$TMPD/next"
     while IFS= read -r -d '' f; do
       if [ -n "$stopped" ]; then
         printf '%s\0' "$f" >> "$TMPD/next"
         continue
       fi
+      i=$((i + 1))
+      echo "pass $pass, file $i/$n: $(relative "$f" "$phys")" >&2
+      t0=$SECONDS
       read_one "$f"
-      if [ $? -eq 2 ]; then timeouts=$((timeouts + 1)); else timeouts=0; fi
+      rc=$?
+      case "$rc" in
+        0) echo "  done in $((SECONDS - t0))s" >&2 ;;
+        2) echo "  stopped after ${READ_WAIT}s" >&2 ;;
+        *) echo "  failed after $((SECONDS - t0))s" >&2 ;;
+      esac
+      if [ "$rc" -eq 2 ]; then timeouts=$((timeouts + 1)); else timeouts=0; fi
       if is_online "$f"; then
         printf '%s\0' "$f" >> "$TMPD/next"
       else

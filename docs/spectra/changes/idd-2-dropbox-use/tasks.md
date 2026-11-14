@@ -29,3 +29,7 @@
 ## 5. Security review follow-up
 
 - [x] 5.1 Printed file names cannot add lines to the download output (follow-up to the security review of the download commit; extends the requirement "download reports files still online-only when its retries end"). Add the test tagged `spec-example: dropbox-local-files / a file name with a newline stays on one line`, watch it fail, then replace control characters (0x01 to 0x1F, 0x7F) in each `online_only_file=` path with `?`, leaving non-ASCII names unchanged. Verified by `bash tests/test_local.sh`: `online_only_file=evil?stopped=timeouts.pdf` and `online_only_file=報告.pdf` printed, no stdout line equal to `stopped=timeouts`, exit 2. [after: 2.6]
+
+## 6. Real-folder follow-up
+
+- [x] 6.1 download reports its progress on stderr (found during the real-folder check: a 14-minute run printed nothing until it ended; extends the requirement "download reads online-only files until none remain"). Add the test tagged `spec-example: dropbox-local-files / progress lines name each read and its result`, watch it fail, then print `pass <p>, file <i>/<n>: <path>` before each read and `  done in <s>s`, `  failed after <s>s` or `  stopped after <s>s` after it, on stderr only. Verified by `bash tests/test_local.sh`: the four stderr lines present and no stdout line starting with `pass `. [after: 5.1]
