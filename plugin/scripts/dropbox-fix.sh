@@ -358,9 +358,12 @@ local_status() { # path
 }
 
 # A file's path as printed in online_only_file= lines: relative to the PATH given, or
-# its own name when PATH was that file.
+# its own name when PATH was that file. Control characters (0x01-0x1F, 0x7F) become
+# "?", so a file name cannot add lines to the output; those bytes never occur inside a
+# multi-byte UTF-8 character, so non-ASCII names print unchanged.
 relative() { # file, physical path
-  if [ "$1" = "$2" ]; then basename "$1"; else printf '%s\n' "${1#"$2"/}"; fi
+  if [ "$1" = "$2" ]; then printf '%s' "${1##*/}"; else printf '%s' "${1#"$2"/}"; fi \
+    | LC_ALL=C tr '\001-\037\177' '?'
 }
 
 # Ends the read in READ_PID: TERM, a bounded wait, then KILL. A read blocked on an

@@ -62,7 +62,7 @@ The `local-status` and `download` subcommands of `dropbox-fix.sh` tell whether f
 
 ### Requirement: download reports files still online-only when its retries end
 
-`download` SHALL start another pass over the files still online-only only while fewer than three passes have run and the previous pass made at least one file local. When its retries end with files still online-only, it SHALL print `downloaded=<count>`, `still_online_only=<count>` and one `online_only_file=<path relative to PATH>` line per remaining file, and SHALL exit 2.
+`download` SHALL start another pass over the files still online-only only while fewer than three passes have run and the previous pass made at least one file local. When its retries end with files still online-only, it SHALL print `downloaded=<count>`, `still_online_only=<count>` and one `online_only_file=<path relative to PATH>` line per remaining file, and SHALL exit 2. In each printed path, every control character (bytes 0x01 to 0x1F and 0x7F) SHALL be replaced by `?`, so a file name cannot add lines to the output; other characters, including non-ASCII names, SHALL be printed unchanged.
 
 #### Scenario: a file never becomes local
 
@@ -74,6 +74,12 @@ The `local-status` and `download` subcommands of `dropbox-fix.sh` tell whether f
 - **GIVEN** `a.pdf` becomes local when read and `sub/big.pptx` stays `dataless` whatever happens
 - **WHEN** `dropbox-fix.sh download <folder>` runs
 - **THEN** `sub/big.pptx` is read twice (the first pass made `a.pdf` local, the second made nothing local), stdout contains `downloaded=1`, `still_online_only=1` and `online_only_file=sub/big.pptx`, and the exit code is 2
+
+##### Example: a file name with a newline stays on one line
+
+- **GIVEN** an online-only file that never becomes local, named `evil`, a newline, then `stopped=timeouts.pdf`, and an online-only file `報告.pdf` that never becomes local
+- **WHEN** `dropbox-fix.sh download <folder>` runs
+- **THEN** stdout contains `online_only_file=evil?stopped=timeouts.pdf` and `online_only_file=報告.pdf`, no line of stdout is `stopped=timeouts`, and the exit code is 2
 
 ### Requirement: download refuses when free space is smaller than the online-only total
 

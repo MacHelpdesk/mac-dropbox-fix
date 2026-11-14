@@ -74,6 +74,7 @@ while [ $# -gt 0 ]; do
 done
 for p in "$@"; do
   name="${p##*/}"
+  name="${name//$'\n'/|}"
   size="$(/usr/bin/stat -f %z "$p")" || exit 1
   flags="$(awk -F'\t' -v n="$name" '$1 == n { print $2; exit }' "$STUB_STATE/flags")"
   [ -n "$flags" ] || flags="-"
@@ -96,6 +97,7 @@ for a in "$@"; do
   case "$a" in if=*) src="${a#if=}" ;; esac
 done
 name="${src##*/}"
+name="${name//$'\n'/|}"
 echo "read $name" >> "$STUB_STATE/calls"
 if grep -qxF "$name" "$STUB_STATE/hang"; then
   echo $$ >> "$STUB_STATE/hang_pids"
@@ -124,7 +126,9 @@ teardown() { PATH="$OLD_PATH"; export PATH; rm -rf "$T"; }
 mkfile() { # path under the Dropbox folder, size in bytes, flags ("" for none)
   mkdir -p "$(dirname "$DBX/$1")"
   head -c "$2" /dev/zero > "$DBX/$1"
-  [ -n "$3" ] && printf '%s\t%s\n' "${1##*/}" "$3" >> "$STUB_STATE/flags"
+  local key="${1##*/}"
+  key="${key//$'\n'/|}"   # the stubs look files up by name, with a newline written as |
+  [ -n "$3" ] && printf '%s\t%s\n' "$key" "$3" >> "$STUB_STATE/flags"
   return 0
 }
 
@@ -277,6 +281,21 @@ assert_eq "offline: every file listed"  5 "$(printf '%s\n' "$OUT" | grep -c '^on
 assert_eq "offline: stopped comes first" "stopped downloaded still_online_only" \
   "$(printf '%s\n' "$OUT" | sed 's/=.*//' | grep -v online_only_file | tr '\n' ' ' | sed 's/ $//')"
 assert_no_reads_left "offline"
+teardown
+
+# --- spec-example: dropbox-local-files / a file name with a newline stays on one line ---
+setup
+NL='
+'
+mkfile "evil${NL}stopped=timeouts.pdf" 100 dataless
+mkfile "報告.pdf" 100 dataless
+printf '%s\n' "evil|stopped=timeouts.pdf" "報告.pdf" >> "$STUB_STATE/stubborn"
+OUT="$(/bin/bash "$SCRIPT" download "$DBX" 2>/dev/null)"; rc=$?
+assert_eq  "newline name: exit status" 2 "$rc"
+assert_has "newline name: printed on one line" "online_only_file=evil?stopped=timeouts.pdf" "$OUT"
+assert_has "newline name: non-ASCII name unchanged" "online_only_file=報告.pdf" "$OUT"
+assert_eq  "newline name: no injected line" "" "$(printf '%s\n' "$OUT" | grep -x 'stopped=timeouts')"
+assert_no_reads_left "newline name"
 teardown
 
 # --- spec-example: dropbox-local-files / download with no argument ---------------------
