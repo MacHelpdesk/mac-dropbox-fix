@@ -66,7 +66,7 @@ if [ ! -f "$SKILL" ]; then
   exit 1
 fi
 
-# --- spec-example: dropbox-use-skill / list membership -------------------------------
+# spec-example: dropbox-use-skill / list membership
 d="$(line_of "$DIRECT")"; a="$(line_of "$ASK")"; u="$(line_of "$USER_ONLY")"; n="$(line_of "$NEVER")"
 if [ "$d" -gt 0 ] && [ "$a" -gt "$d" ] && [ "$u" -gt "$a" ] && [ "$n" -gt "$u" ]; then
   ok "lists: four lists in order direct, ask first, user only, never"
@@ -86,14 +86,14 @@ assert_lacks "lists: no subcommand in the user list" "dropbox-fix.sh"           
 assert_has   "lists: nucleus.sqlite3 never touched"  "nucleus.sqlite3"             "$(section "$NEVER")"
 assert_lacks "lists: no subcommand in the never list" "dropbox-fix.sh"             "$(section "$NEVER")"
 
-# --- spec-example: dropbox-use-skill / required mentions in the download entry --------
+# spec-example: dropbox-use-skill / required mentions in the download entry
 entry="$(rows "$(section "$ASK")" | grep 'dropbox-fix.sh download')"
 for k in online_only online_only_bytes free_bytes; do
   assert_has "download entry: names $k" "\`$k\`" "$entry"
 done
 assert_has "download entry: says files can be evicted again" "回收" "$entry"
 
-# --- spec-example: dropbox-use-skill / four never items --------------------------------
+# spec-example: dropbox-use-skill / four never items
 never="$(rows "$(section "$NEVER")")"
 assert_eq  "never: exactly four entries" 4 "$(printf '%s\n' "$never" | grep -c .)"
 assert_has "never: making files online-only" "僅線上"          "$never"
@@ -101,7 +101,7 @@ assert_has "never: Dropbox settings"         "設定"            "$never"
 assert_has "never: nucleus.sqlite3"          "nucleus.sqlite3" "$never"
 assert_has "never: paths outside the Dropbox folder" "CloudStorage" "$never"
 
-# --- spec-example: dropbox-use-skill / copying section labels --------------------------
+# spec-example: dropbox-use-skill / copying section labels
 copying="$(rows "$(section "## 複製或備份")")"
 n_methods="$(printf '%s\n' "$copying" | grep -c .)"
 if [ "$n_methods" -ge 2 ]; then ok "copying: at least two methods described"

@@ -60,7 +60,7 @@ Chosen by the maintainer in spectra-discuss: no size threshold. The skill states
 
 ### Copying guidance carries its verification status
 
-The skill tells the user that a plain `cp` copies Dropbox's internal attributes and that the effect is not yet verified; it shows the copy that preserves modification times and drops extended attributes (the method used in the session that produced #2) with its evidence status. The guidance is updated after the test-folder experiment; until then it is labelled unverified.
+The skill lists each copying method with what was observed and an evidence label. The test-folder experiment on 2026-11-14 (macOS 27.3, Dropbox 280.3.5020) found that a `cp -p` copy starts with the original's `com.dropbox.attrs` and that Dropbox replaced it with the copy's own value within 90 seconds, with no conflicted copy; a `cp -pX` copy also received its own value. Copies made earlier the same day without the attributes had them a few hours later (116 of 117). Each of these was seen once, and the labels say so.
 
 ## Implementation Contract
 
@@ -99,13 +99,13 @@ The skill tells the user that a plain `cp` copies Dropbox's internal attributes 
 
 ## Risks / Trade-offs
 
-- [A large file needs longer than the per-file timeout on a slow connection] → `DROPBOX_FIX_READ_WAIT` is configurable; the file is reported, not silently skipped; the default is an estimate to be checked in the test folder.
+- [A large file needs longer than the per-file timeout on a slow connection] → measured on 2026-11-14: a 200 MB file took about 700 seconds (about 0.3 MB/s), so its first read was stopped at 300 seconds; on the next pass it read in 1 second, so the stopped read did not make the download start over in that run. The default stays 300 seconds: a longer one would not have helped that run, and it would make an offline run take longer to stop (three timeouts). `DROPBOX_FIX_READ_WAIT` remains configurable, and the file is reported, not silently skipped. Keeping 300 is to be confirmed by the maintainer.
 - [Stubbed `stat` output differs from real File Provider flags] → the manual test-folder run checks the real flags; the verification table separates "stub tests pass" from "checked on a real Dropbox folder".
 - [Downloaded files are evicted again by the system later] → the skill says so and gives the Finder "Make Available Offline" step; the script does not claim permanence.
 - [Free space can shrink while downloading] → the precheck is a guard against the obvious case only; a mid-run failure shows up as files still online-only and exit 2.
 - [Sequential reads are slower than the parallel run that was measured] → accepted for simplicity; revisit with measured timings.
 - [A read blocked in the kernel ignores TERM] → bounded wait, then KILL, then report and move on; stub tests cannot show this, so the offline step of the real-folder check confirms that stopping a read of a real online-only file works.
-- [Three consecutive timeouts can also come from three very large files on a slow but working connection, or from small files queued behind one large download: Dropbox downloaded one file at a time in the real-folder run, and four tiny files each waited 78 to 123 seconds behind a 200 MB file] → the run stops and lists them; a stopped read does not cancel Dropbox's download (the 200 MB file read in 1 second on the next pass), so running again, or raising `DROPBOX_FIX_READ_WAIT`, picks them up.
+- [Three consecutive timeouts can also come from three very large files on a slow but working connection, or from small files that are slow while a large file is downloading: in the real-folder run, four files of a few dozen bytes each took 78 to 123 seconds while a 200 MB file was downloading] → the run stops and lists them; in that run the 200 MB file read in 1 second on the pass after its read was stopped, so running again, or raising `DROPBOX_FIX_READ_WAIT`, is expected to pick them up. Seen once; not established for other versions.
 
 ## Migration Plan
 
@@ -113,4 +113,4 @@ No data migration. The plugin manifest moves to 0.2.0 so that installed users re
 
 ## Open Questions
 
-None open. The maintainer confirmed on 2026-11-14 every recommendation that had been listed here: the `local-status` output keys and the `download` exit codes 0, 1, 2, 4, 64; refusing `download` when free space is smaller than the online-only total; what the skill states before `download` (file count, total size, free space, eviction); the four-item "never" list; and the 300-second default per-file timeout, which stays an estimate until the real-folder check measures it. The stop-after-three-consecutive-timeouts rule was added and confirmed the same day.
+None open. The maintainer confirmed on 2026-11-14 every recommendation that had been listed here: the `local-status` output keys and the `download` exit codes 0, 1, 2, 4, 64; refusing `download` when free space is smaller than the online-only total; what the skill states before `download` (file count, total size, free space, eviction); the four-item "never" list; and the 300-second default per-file timeout, which was then an estimate; the real-folder check measured it the same day (see the first item under Risks), and keeping it is pending the maintainer's confirmation. The stop-after-three-consecutive-timeouts rule was added and confirmed the same day.

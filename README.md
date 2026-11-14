@@ -104,7 +104,7 @@ total_indexable=1283295
 `download` 逐檔讀取路徑底下僅線上的檔案，讓 Dropbox 把它們下載到這台 Mac；會用掉網路與磁碟空間，但不修改、搬移或刪除任何檔案。
 
 - 剩餘空間小於要下載的總量時，一個檔都不讀，結束碼 4。
-- 每個檔讀 `DROPBOX_FIX_READ_WAIT` 秒（預設 300）沒讀完就停掉這次讀取。停掉讀取不會取消 Dropbox 的下載，下一輪常常一下子就讀完。
+- 每個檔讀 `DROPBOX_FIX_READ_WAIT` 秒（預設 300）沒讀完就停掉這次讀取。實測一次：200 MB 的檔第一輪被停掉之後，第二輪 1 秒就讀完。
 - 上一輪有檔案下載成功才跑下一輪，最多三輪；連續三個檔逾時就停（`stopped=timeouts`），這通常是沒有網路。
 - 結束時還是僅線上的檔逐一列成 `online_only_file=`，結束碼 2；stderr 每讀一個檔印一行進度。
 
@@ -157,7 +157,7 @@ plugin/scripts/dropbox-fix.sh validate
 3. **`launchctl kickstart -k` 不能用來重啟 `fileproviderd`。** 它受 SIP 保護，會回結束碼 150。一般的結束訊號可以。
 4. **`fileproviderd` 很忙不等於卡住。** 不正常關機後它會把整個 Dropbox 資料夾重新交給 Spotlight 索引，上百萬個項目要跑很久；看 `pending_indexable` 有沒有在下降。
 5. **檔案大小不能說明檔案在不在本機。** 僅線上的佔位檔在 `ls -l` 裡顯示完整大小；看 `ls -lO` 的 `dataless`，或用 `local-status`。
-6. **Dropbox 一次下載一個檔。** 大檔下載中時，排在後面的小檔也要等；在測試裡四個幾十 byte 的檔各等了一到兩分鐘。
+6. **大檔下載中時，小檔也可能很慢。** 實測一次：一個 200 MB 的檔下載時，四個幾十 byte 的檔各花了 78 到 123 秒。
 
 ## 驗證到哪裡
 
@@ -174,7 +174,8 @@ plugin/scripts/dropbox-fix.sh validate
 | `download` 在真的 Dropbox 資料夾上下載 | 已實測一次：5 個檔、200 MB，712 秒，結束碼 0，沒有留下讀取程序；大檔第一輪 300 秒被停、第二輪 1 秒讀完 |
 | `cp -p` 帶著原檔的 Dropbox 屬性複製 | 已實測一次：90 秒內 Dropbox 換上副本自己的屬性，沒有衝突的複本；副本有沒有出現在 dropbox.com 沒在網頁上核對 |
 | `local-status`、`download` 的輸出、結束碼、空間檢查、逾時、重試與停止規則；`dropbox-use` 的四張表 | 只在測試裡用替身指令驗過（`tests/test_local.sh` 92 項、`tests/test_skill_use.sh` 27 項） |
-| 離線時 `download` 停得下來；「設為離線存取」之後檔案還會不會被回收 | 未驗證 |
+| 連線狀態下，讀到上限時停掉真的讀取 | 已實測兩次：之後沒有殘留的讀取程序 |
+| 離線時 `download` 停得下來；「設為離線存取」之後檔案還會不會被回收 | 未驗證（追蹤在 #3） |
 | 其他 macOS 與 Dropbox 版本 | 未驗證。`fileproviderctl dump` 的格式沒有公開文件 |
 
 ## 需求

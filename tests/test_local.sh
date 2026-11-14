@@ -146,7 +146,7 @@ assert_no_reads_left() { # name
 
 [ -f "$SCRIPT" ] || { echo "FAIL script not found: $SCRIPT"; exit 1; }
 
-# --- spec-example: dropbox-local-files / two of three files online-only ---------------
+# spec-example: dropbox-local-files / two of three files online-only
 setup
 mkfile a.pdf 1000 compressed,dataless
 mkfile sub/b.docx 500 dataless
@@ -163,7 +163,7 @@ assert_eq "local-status: no file read"      0       "$(reads)"
 assert_no_reads_left "local-status"
 teardown
 
-# --- spec-example: dropbox-local-files / path scope cases ------------------------------
+# spec-example: dropbox-local-files / path scope cases
 # Every subcommand that takes a PATH runs through the same physical-path check.
 SCOPED_SUBCOMMANDS="local-status download"
 setup
@@ -190,7 +190,7 @@ done
 assert_eq "scope: no file read" 0 "$(reads)"
 teardown
 
-# --- spec-example: dropbox-local-files / two files downloaded in the first pass ---------
+# spec-example: dropbox-local-files / two files downloaded in the first pass
 setup
 mkfile a.pdf 1000 compressed,dataless
 mkfile sub/b.docx 500 dataless
@@ -206,7 +206,7 @@ assert_eq "download all: nothing listed"    "" "$(printf '%s\n' "$OUT" | grep '^
 assert_no_reads_left "download all"
 teardown
 
-# --- spec-example: dropbox-local-files / nothing to download ---------------------------
+# spec-example: dropbox-local-files / nothing to download
 setup
 mkfile a.pdf 1000 ""
 mkfile sub/b.docx 500 compressed
@@ -217,7 +217,7 @@ assert_eq "nothing to download: no file read" 0 "$(reads)"
 assert_no_reads_left "nothing to download"
 teardown
 
-# --- spec-example: dropbox-local-files / one stubborn file among two -------------------
+# spec-example: dropbox-local-files / one stubborn file among two
 setup
 mkfile a.pdf 1000 dataless
 mkfile sub/big.pptx 3000 compressed,dataless
@@ -233,7 +233,7 @@ assert_eq "stubborn: not stopped on timeouts" "" "$(sig stopped)"
 assert_no_reads_left "stubborn"
 teardown
 
-# --- spec-example: dropbox-local-files / 1024 bytes free for 1500 bytes needed ---------
+# spec-example: dropbox-local-files / 1024 bytes free for 1500 bytes needed
 setup
 mkfile a.pdf 1000 dataless
 mkfile b.docx 500 dataless
@@ -246,7 +246,7 @@ assert_eq  "no space: no file read" 0 "$(reads)"
 assert_no_reads_left "no space"
 teardown
 
-# --- spec-example: dropbox-local-files / hanging read stopped after two seconds ---------
+# spec-example: dropbox-local-files / hanging read stopped after two seconds
 setup
 export DROPBOX_FIX_READ_WAIT=2
 mkfile a.pdf 1000 dataless
@@ -264,7 +264,7 @@ else bad "hang: reads stopped" "took ${took}s; each read should end after about 
 assert_no_reads_left "hang"
 teardown
 
-# --- spec-example: dropbox-local-files / offline run stops after three timeouts ---------
+# spec-example: dropbox-local-files / offline run stops after three timeouts
 setup
 export DROPBOX_FIX_READ_WAIT=1
 for i in 1 2 3 4 5; do
@@ -283,7 +283,7 @@ assert_eq "offline: stopped comes first" "stopped downloaded still_online_only" 
 assert_no_reads_left "offline"
 teardown
 
-# --- spec-example: dropbox-local-files / a file name with a newline stays on one line ---
+# spec-example: dropbox-local-files / a file name with a newline stays on one line
 setup
 NL='
 '
@@ -298,7 +298,7 @@ assert_eq  "newline name: no injected line" "" "$(printf '%s\n' "$OUT" | grep -x
 assert_no_reads_left "newline name"
 teardown
 
-# --- spec-example: dropbox-local-files / progress lines name each read and its result ---
+# spec-example: dropbox-local-files / progress lines name each read and its result
 setup
 export DROPBOX_FIX_READ_WAIT=2
 mkfile a.pdf 1000 dataless
@@ -313,7 +313,7 @@ assert_eq  "progress: nothing on stdout" "" "$(grep '^pass ' "$T/stdout")"
 assert_no_reads_left "progress"
 teardown
 
-# --- spec-example: dropbox-local-files / download with no argument ---------------------
+# spec-example: dropbox-local-files / download with no argument
 setup
 ERR="$(/bin/bash "$SCRIPT" download 2>&1 >/dev/null)"; rc=$?
 assert_eq "download without PATH: exit status" 64 "$rc"
