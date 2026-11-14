@@ -10,3 +10,6 @@
 problems.local.json
 records/
 results/
+
+# Spectra app data
+.spectra/
