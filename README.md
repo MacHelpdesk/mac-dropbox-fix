@@ -1,10 +1,10 @@
 # mac-dropbox-fix
 
-Dropbox 在 Mac 上卡住不同步時，量測 Dropbox 與 macOS File Provider 的狀態，對照一份已知問題的知識庫找出是哪一種，再照每個解法標明的界線處理。
+Dropbox 在 Mac 上卡住不同步時，量測 Dropbox 與 macOS File Provider 的狀態，對照一份已知問題的知識庫找出是哪一種，再照每個解法標明的界線處理。要在 Dropbox 資料夾裡整理、複製、搬移一批檔案時，也能先確認檔案在不在這台 Mac 上，需要時先問再下載。
 
 與 [`mac-printer-setup`](https://github.com/MacHelpdesk/mac-printer-setup)、[`mac-network-test`](https://github.com/MacHelpdesk/mac-network-test) 同一個系列：先量測，再判讀，最後才動手。
 
-> **狀態：v0.1.0。** 兩筆條目在 macOS 27.3、Dropbox 280.3.5012 上實際發生並處理過，各一次。其餘條目來自更早的事故紀錄或沒有實測，知識庫裡每一筆都標了狀態。
+> **狀態：v0.2.0。** 不同步的知識庫裡，兩筆條目在 macOS 27.3、Dropbox 280.3.5012 上實際發生並處理過，各一次；其餘來自更早的事故紀錄或沒有實測，每一筆都標了狀態。檢查與下載僅線上檔案的部分，在 macOS 27.3、Dropbox 280.3.5020 的測試資料夾實測過一次；離線時的行為還沒實測。
 
 ## 它解決什麼
 
@@ -17,15 +17,23 @@ Dropbox 在 Mac 上分成兩半：選單列的主程式，以及由 macOS 的 `f
 | 某天開始完全不同步，重開機也沒用 | 可能是同步進度指標損壞，或延伸卡死。這兩筆是線索，要另外確認 | `sync-anchor-dropped`、`fileprovider-xpc-deadlock` |
 | 同步卡住，先前有人對 Dropbox 的資料庫跑過 `sqlite3` | 殘留的程序可能握著鎖 | `stray-sqlite3-on-nucleus` |
 
-範圍是封閉的：Mac 上以 File Provider 運作的 Dropbox（資料夾在 `~/Library/CloudStorage` 底下）。Dropbox 帳號、空間額度、分享連結、選擇性同步的設定、其他雲端服務都不處理。
+另一種情況是同步正常，但你要動資料夾裡的檔案：
 
-## 三個部分
+| 你遇到的 | 原因 | 用哪個 |
+|---|---|---|
+| `ls` 看起來檔案都在、大小也對，讀起來卻很慢，或複製到一半卡住 | 檔案是僅線上的佔位檔，內容還在雲端；讀它才會下載 | `dropbox-use`（先 `local-status` 量，再決定要不要 `download`） |
+| 想先把整個資料夾下載下來再整理 | 這版 macOS 的 `fileproviderctl` 沒有下載的指令 | `download` 逐檔讀取，讓 Dropbox 下載 |
+
+範圍是封閉的：Mac 上以 File Provider 運作的 Dropbox（資料夾在 `~/Library/CloudStorage` 底下），只處理兩件事：不同步時的量測與處理，以及動檔案之前確認它們在不在這台 Mac 上。Dropbox 帳號、空間額度、分享連結、選擇性同步的設定、Dropbox 的網頁與 API、其他雲端服務都不處理。
+
+## 四個部分
 
 | 部分 | 位置 | 做什麼 |
 |---|---|---|
-| skill | `/mac-dropbox-fix:dropbox-fix` | 量測 → 對照知識庫 → 向你說明 → 依界線處理 → 再量一次並記錄 |
+| skill | `/mac-dropbox-fix:dropbox-fix` | 不同步時：量測 → 對照知識庫 → 向你說明 → 依界線處理 → 再量一次並記錄 |
+| skill | `/mac-dropbox-fix:dropbox-use` | 動檔案之前：量哪些是僅線上 → 要下載就先問 → 下載並再量一次 → 說明複製方法的驗證狀態 |
 | 知識庫 | `plugin/data/problems.json` | 每筆問題的症狀、量得到的訊號、原因、解法、試過無效的做法、驗證到哪裡 |
-| 腳本 | `plugin/scripts/dropbox-fix.sh` | 量測與比對；只有一個子命令會改動東西 |
+| 腳本 | `plugin/scripts/dropbox-fix.sh` | 量測、比對、檢查與下載僅線上的檔案；會改動東西的子命令見下文 |
 
 ## 安裝
 
@@ -39,6 +47,9 @@ Dropbox 在 Mac 上分成兩半：選單列的主程式，以及由 macOS 的 `f
 ```
 Dropbox 卡住了，同步數字一直不動
 → /mac-dropbox-fix:dropbox-fix
+
+我要整理 Dropbox 裡的這個資料夾，先確認檔案都在本機
+→ /mac-dropbox-fix:dropbox-use
 ```
 
 腳本不透過 Claude Code 也能用。clone 這個 repo 之後：
@@ -50,7 +61,19 @@ plugin/scripts/dropbox-fix.sh list       # 知識庫裡的每一筆
 plugin/scripts/dropbox-fix.sh show <id>  # 一筆的完整內容
 plugin/scripts/dropbox-fix.sh validate   # 檢查知識庫與你自己的條目
 
+plugin/scripts/dropbox-fix.sh local-status <路徑>     # 路徑底下幾個檔、幾個僅線上、要下載多少、剩多少空間
+
 plugin/scripts/dropbox-fix.sh restart-fileproviderd   # 會改動東西，見下一節
+plugin/scripts/dropbox-fix.sh download <路徑>         # 會下載檔案，見下一節
+```
+
+`local-status` 的輸出長這樣（路徑只接受 `~/Library/CloudStorage` 底下 Dropbox 資料夾裡的）：
+
+```
+files=5
+online_only=5
+online_only_bytes=209715307
+free_bytes=31457280000
 ```
 
 `probe` 的輸出長這樣：
@@ -74,9 +97,16 @@ total_indexable=1283295
 
 讀得到 Dropbox 的 `Domains.plist` 時還會有一行 `domain_count`。讀不到的值不會出現，或寫成 `unknown`：系統很忙時 `fileproviderd` 對兩個索引數字回報逾時，那兩行就沒有。連結了兩個 Dropbox 帳號（`domain_count` 大於 1）時，這一版不讀 domain 的狀態。
 
-## 會改動東西的只有一個子命令
+## 會改動東西的兩個子命令
 
 `restart-fileproviderd` 對目前使用者的 `fileproviderd` 送結束訊號，等 launchd 啟動新的。iCloud 雲碟、Google Drive、OneDrive 這些同一個 daemon 管的雲端資料夾會跟著中斷幾秒再重連。它不動任何資料庫檔，也不動 Dropbox 的帳號連結。
+
+`download` 逐檔讀取路徑底下僅線上的檔案，讓 Dropbox 把它們下載到這台 Mac；會用掉網路與磁碟空間，但不修改、搬移或刪除任何檔案。
+
+- 剩餘空間小於要下載的總量時，一個檔都不讀，結束碼 4。
+- 每個檔讀 `DROPBOX_FIX_READ_WAIT` 秒（預設 300）沒讀完就停掉這次讀取。實測一次：200 MB 的檔第一輪被停掉之後，第二輪 1 秒就讀完。
+- 上一輪有檔案下載成功才跑下一輪，最多三輪；連續三個檔逾時就停（`stopped=timeouts`），這通常是沒有網路。
+- 結束時還是僅線上的檔逐一列成 `online_only_file=`，結束碼 2；stderr 每讀一個檔印一行進度。
 
 其餘子命令不改動任何設定。`probe` 會啟動 `fileproviderctl dump`，讀到需要的欄位就把它結束掉：domain 正常時這份 dump 有上百萬行。
 
@@ -120,12 +150,14 @@ plugin/scripts/dropbox-fix.sh validate
 
 `fileproviderctl dump` 的輸出含有 domain 的 UUID 與家目錄底下的路徑。回報問題時把 UUID 換成 `00000000-0000-0000-0000-000000000000`，路徑拿掉使用者名稱。這個 repo 的 `.gitignore` 擋掉 `problems.local.json`、`records/`、`results/`，CI 也會檢查追蹤的檔案裡有沒有家目錄路徑與真實的 UUID。
 
-## 要知道的四件事
+## 要知道的六件事
 
 1. **實際同步檔案的是延伸，不是主程式。** 選單列的圖示在，不代表延伸在跑。`probe` 的 `dropbox_extension` 才是答案。
 2. **重開 Dropbox 主程式救不回啟動失敗的 domain。** domain 的狀態在 `fileproviderd` 裡，主程式重開時它已經是錯誤狀態。
 3. **`launchctl kickstart -k` 不能用來重啟 `fileproviderd`。** 它受 SIP 保護，會回結束碼 150。一般的結束訊號可以。
 4. **`fileproviderd` 很忙不等於卡住。** 不正常關機後它會把整個 Dropbox 資料夾重新交給 Spotlight 索引，上百萬個項目要跑很久；看 `pending_indexable` 有沒有在下降。
+5. **檔案大小不能說明檔案在不在本機。** 僅線上的佔位檔在 `ls -l` 裡顯示完整大小；看 `ls -lO` 的 `dataless`，或用 `local-status`。
+6. **大檔下載中時，小檔也可能很慢。** 實測一次：一個 200 MB 的檔下載時，四個幾十 byte 的檔各花了 78 到 123 秒。
 
 ## 驗證到哪裡
 
@@ -138,11 +170,17 @@ plugin/scripts/dropbox-fix.sh validate
 | 結束殘留的 sqlite3、解除帳號連結重新登入 | 來自更早的事故紀錄，沒有用這個工具重新做過 |
 | `open -a Dropbox` | 未驗證 |
 | 連結兩個 Dropbox 帳號的 Mac | 不支援：`probe` 只回報有幾個 domain |
+| `local-status` 分得出本機與僅線上的檔 | 已實測（macOS 27.3、Dropbox 280.3.5020，2026-11-14）：設為僅供線上存取的 5 個檔量到 `online_only=5` |
+| `download` 在真的 Dropbox 資料夾上下載 | 已實測一次：5 個檔、200 MB，712 秒，結束碼 0，沒有留下讀取程序；大檔第一輪 300 秒被停、第二輪 1 秒讀完 |
+| `cp -p` 帶著原檔的 Dropbox 屬性複製 | 已實測一次：90 秒內 Dropbox 換上副本自己的屬性，沒有衝突的複本；副本有沒有出現在 dropbox.com 沒在網頁上核對 |
+| `local-status`、`download` 的輸出、結束碼、空間檢查、逾時、重試與停止規則；`dropbox-use` 的四張表 | 只在測試裡用替身指令驗過（`tests/test_local.sh` 92 項、`tests/test_skill_use.sh` 27 項） |
+| 連線狀態下，讀到上限時停掉真的讀取 | 已實測兩次：之後沒有殘留的讀取程序 |
+| 離線時 `download` 停得下來；「設為離線存取」之後檔案還會不會被回收 | 未驗證（追蹤在 #3） |
 | 其他 macOS 與 Dropbox 版本 | 未驗證。`fileproviderctl dump` 的格式沒有公開文件 |
 
 ## 需求
 
-- macOS（實測 27.3），內建的 `fileproviderctl`、`pgrep`、`osascript`
+- macOS（實測 27.3），內建的 `fileproviderctl`、`pgrep`、`osascript`；`local-status` 與 `download` 另外用到內建的 `find`、`stat`、`df`、`dd`
 - 不需要另外安裝任何東西；讀 JSON 用的是 macOS 內建的 JavaScript（`osascript -l JavaScript`）
 - 不需要管理者權限
 
