@@ -161,7 +161,7 @@ teardown
 
 # --- spec-example: dropbox-local-files / path scope cases ------------------------------
 # Every subcommand that takes a PATH runs through the same physical-path check.
-SCOPED_SUBCOMMANDS="local-status"
+SCOPED_SUBCOMMANDS="local-status download"
 setup
 CS="$HOME/Library/CloudStorage"
 mkdir -p "$DBX/work" "$CS/Dropbox-Personal/work" "$HOME/Documents/work" "$CS/GoogleDrive-x/work"
@@ -184,6 +184,99 @@ $DBX/missing|1|does not exist
 ROWS
 done
 assert_eq "scope: no file read" 0 "$(reads)"
+teardown
+
+# --- spec-example: dropbox-local-files / two files downloaded in the first pass ---------
+setup
+mkfile a.pdf 1000 compressed,dataless
+mkfile sub/b.docx 500 dataless
+mkfile c.txt 20 ""
+OUT="$(/bin/bash "$SCRIPT" download "$DBX" 2>/dev/null)"; rc=$?
+assert_eq "download all: exit status"       0 "$rc"
+assert_eq "download all: downloaded"        2 "$(sig downloaded)"
+assert_eq "download all: still_online_only" 0 "$(sig still_online_only)"
+assert_eq "download all: a.pdf read once"   1 "$(reads a.pdf)"
+assert_eq "download all: b.docx read once"  1 "$(reads b.docx)"
+assert_eq "download all: c.txt not read"    0 "$(reads c.txt)"
+assert_eq "download all: nothing listed"    "" "$(printf '%s\n' "$OUT" | grep '^online_only_file=')"
+assert_no_reads_left "download all"
+teardown
+
+# --- spec-example: dropbox-local-files / nothing to download ---------------------------
+setup
+mkfile a.pdf 1000 ""
+mkfile sub/b.docx 500 compressed
+OUT="$(/bin/bash "$SCRIPT" download "$DBX" 2>/dev/null)"; rc=$?
+assert_eq "nothing to download: exit status" 0 "$rc"
+assert_eq "nothing to download: output" "online_only=0" "$OUT"
+assert_eq "nothing to download: no file read" 0 "$(reads)"
+assert_no_reads_left "nothing to download"
+teardown
+
+# --- spec-example: dropbox-local-files / one stubborn file among two -------------------
+setup
+mkfile a.pdf 1000 dataless
+mkfile sub/big.pptx 3000 compressed,dataless
+echo big.pptx >> "$STUB_STATE/stubborn"
+OUT="$(/bin/bash "$SCRIPT" download "$DBX" 2>/dev/null)"; rc=$?
+assert_eq "stubborn: exit status"            2 "$rc"
+assert_eq "stubborn: big.pptx read twice"    2 "$(reads big.pptx)"
+assert_eq "stubborn: a.pdf read once"        1 "$(reads a.pdf)"
+assert_eq "stubborn: downloaded"             1 "$(sig downloaded)"
+assert_eq "stubborn: still_online_only"      1 "$(sig still_online_only)"
+assert_eq "stubborn: listed" "sub/big.pptx" "$(sig online_only_file)"
+assert_eq "stubborn: not stopped on timeouts" "" "$(sig stopped)"
+assert_no_reads_left "stubborn"
+teardown
+
+# --- spec-example: dropbox-local-files / 1024 bytes free for 1500 bytes needed ---------
+setup
+mkfile a.pdf 1000 dataless
+mkfile b.docx 500 dataless
+echo 1 > "$STUB_STATE/free_kb"
+ERR="$(/bin/bash "$SCRIPT" download "$DBX" 2>&1 >/dev/null)"; rc=$?
+assert_eq  "no space: exit status" 4 "$rc"
+assert_has "no space: names the free bytes"   1024 "$ERR"
+assert_has "no space: names the bytes needed" 1500 "$ERR"
+assert_eq  "no space: no file read" 0 "$(reads)"
+assert_no_reads_left "no space"
+teardown
+
+# --- spec-example: dropbox-local-files / hanging read stopped after two seconds ---------
+setup
+export DROPBOX_FIX_READ_WAIT=2
+mkfile a.pdf 1000 dataless
+mkfile hang.pdf 2000 dataless
+echo hang.pdf >> "$STUB_STATE/hang"
+started=$SECONDS
+OUT="$(/bin/bash "$SCRIPT" download "$DBX" 2>/dev/null)"; rc=$?
+took=$((SECONDS - started))
+assert_eq "hang: exit status"        2 "$rc"
+assert_eq "hang: a.pdf downloaded"   1 "$(sig downloaded)"
+assert_eq "hang: listed" "hang.pdf" "$(sig online_only_file)"
+assert_eq "hang: hang.pdf read twice" 2 "$(reads hang.pdf)"
+if [ "$took" -le 15 ]; then ok "hang: reads stopped (took ${took}s)"
+else bad "hang: reads stopped" "took ${took}s; each read should end after about 2s"; fi
+assert_no_reads_left "hang"
+teardown
+
+# --- spec-example: dropbox-local-files / offline run stops after three timeouts ---------
+setup
+export DROPBOX_FIX_READ_WAIT=1
+for i in 1 2 3 4 5; do
+  mkfile "c$i.pdf" 100 dataless
+  echo "c$i.pdf" >> "$STUB_STATE/hang"
+done
+OUT="$(/bin/bash "$SCRIPT" download "$DBX" 2>/dev/null)"; rc=$?
+assert_eq "offline: exit status"        2 "$rc"
+assert_eq "offline: reads started"      3 "$(reads)"
+assert_eq "offline: stopped"            timeouts "$(sig stopped)"
+assert_eq "offline: downloaded"         0 "$(sig downloaded)"
+assert_eq "offline: still_online_only"  5 "$(sig still_online_only)"
+assert_eq "offline: every file listed"  5 "$(printf '%s\n' "$OUT" | grep -c '^online_only_file=')"
+assert_eq "offline: stopped comes first" "stopped downloaded still_online_only" \
+  "$(printf '%s\n' "$OUT" | sed 's/=.*//' | grep -v online_only_file | tr '\n' ' ' | sed 's/ $//')"
+assert_no_reads_left "offline"
 teardown
 
 # --- spec-example: dropbox-local-files / download with no argument ---------------------

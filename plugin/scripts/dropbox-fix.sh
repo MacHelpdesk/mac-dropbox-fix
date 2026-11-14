@@ -52,15 +52,19 @@ DOMAINS_PLIST="${DROPBOX_FIX_DOMAINS_PLIST:-$HOME/Library/Application Support/Fi
 DUMP_WAIT="${DROPBOX_FIX_DUMP_WAIT:-20}"
 RESTART_WAIT="${DROPBOX_FIX_RESTART_WAIT:-30}"
 DUMP_LINES=400
+READ_WAIT="${DROPBOX_FIX_READ_WAIT:-300}"
+KILL_WAIT="${DROPBOX_FIX_KILL_WAIT:-5}"
 
 ME="$(id -u)"
 TMPD=""
 DUMP_PID=""
 DUMP_RESULT=""
+READ_PID=""
 
-# DUMP_PID and TMPD are set in this shell, never in a subshell, so this sees them.
+# DUMP_PID, READ_PID and TMPD are set in this shell, never in a subshell, so this sees them.
 cleanup() {
   if [ -n "$DUMP_PID" ]; then kill "$DUMP_PID" 2>/dev/null; fi
+  if [ -n "$READ_PID" ]; then kill -9 "$READ_PID" 2>/dev/null; fi
   if [ -n "$TMPD" ]; then rm -rf "$TMPD"; fi
 }
 trap cleanup EXIT
@@ -353,10 +357,112 @@ local_status() { # path
   return 0
 }
 
+# A file's path as printed in online_only_file= lines: relative to the PATH given, or
+# its own name when PATH was that file.
+relative() { # file, physical path
+  if [ "$1" = "$2" ]; then basename "$1"; else printf '%s\n' "${1#"$2"/}"; fi
+}
+
+# Ends the read in READ_PID: TERM, a bounded wait, then KILL. A read blocked on an
+# online-only file may not end at once, so this never waits without a limit; when even
+# KILL does not end it, it says so and leaves it.
+stop_read() {
+  local n=0
+  kill "$READ_PID" 2>/dev/null
+  while kill -0 "$READ_PID" 2>/dev/null && [ "$n" -lt "$KILL_WAIT" ]; do
+    sleep 1
+    n=$((n + 1))
+  done
+  if kill -0 "$READ_PID" 2>/dev/null; then
+    kill -9 "$READ_PID" 2>/dev/null
+    sleep 1
+  fi
+  if kill -0 "$READ_PID" 2>/dev/null; then
+    echo "a read could not be stopped (pid $READ_PID); going on without it" >&2
+  else
+    wait "$READ_PID" 2>/dev/null
+  fi
+  READ_PID=""
+}
+
+# Reads one file in the background so that File Provider downloads it, and stops the
+# read after READ_WAIT seconds. Returns 0 when the read finished, 1 when it failed, and
+# 2 when it was stopped. Must be called directly, not in $(...): it sets READ_PID.
+read_one() { # file
+  local waited=0 status
+  dd if="$1" of=/dev/null bs=1048576 </dev/null 2>/dev/null &
+  READ_PID=$!
+  while kill -0 "$READ_PID" 2>/dev/null; do
+    if [ "$waited" -ge "$READ_WAIT" ]; then
+      stop_read
+      return 2
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "$READ_PID" 2>/dev/null
+  status=$?
+  READ_PID=""
+  [ "$status" -eq 0 ] || return 1
+  return 0
+}
+
 download() { # path
+  local phys f remaining pass made free timeouts stopped
   [ -n "${1:-}" ] || usage
-  echo "download is not implemented yet" >&2
-  exit 1
+  phys="$(dropbox_path "$1")" || exit 1
+  need_tmpd
+  scan "$phys"
+  if [ "$ONLINE" -eq 0 ]; then
+    echo "online_only=0"
+    return 0
+  fi
+  free="$(free_bytes "$phys")"
+  if [ -z "$free" ]; then
+    echo "could not read the free space on this volume; downloading anyway" >&2
+  elif [ "$free" -lt "$ONLINE_BYTES" ]; then
+    echo "not enough free space: free_bytes=$free, online_only_bytes=$ONLINE_BYTES; nothing was read" >&2
+    exit 4
+  fi
+  # Another pass runs only while fewer than three have run and the last one made a
+  # file local; otherwise it would repeat the same reads. Three timed-out reads in a
+  # row look like an offline Mac: the run stops at once and the rest stays unread.
+  cp "$TMPD/online" "$TMPD/todo"
+  pass=0
+  timeouts=0
+  stopped=""
+  while [ "$pass" -lt 3 ]; do
+    pass=$((pass + 1))
+    made=0
+    : > "$TMPD/next"
+    while IFS= read -r -d '' f; do
+      if [ -n "$stopped" ]; then
+        printf '%s\0' "$f" >> "$TMPD/next"
+        continue
+      fi
+      read_one "$f"
+      if [ $? -eq 2 ]; then timeouts=$((timeouts + 1)); else timeouts=0; fi
+      if is_online "$f"; then
+        printf '%s\0' "$f" >> "$TMPD/next"
+      else
+        made=$((made + 1))
+      fi
+      [ "$timeouts" -ge 3 ] && stopped=timeouts
+    done < "$TMPD/todo"
+    mv "$TMPD/next" "$TMPD/todo"
+    [ -z "$stopped" ] || break
+    [ -s "$TMPD/todo" ] || break
+    [ "$made" -gt 0 ] || break
+  done
+  remaining="$(tr -cd '\000' < "$TMPD/todo" | wc -c | tr -d ' ')"
+  [ -n "$stopped" ] && echo "stopped=$stopped"
+  echo "downloaded=$((ONLINE - remaining))"
+  echo "still_online_only=$remaining"
+  while IFS= read -r -d '' f; do
+    echo "online_only_file=$(relative "$f" "$phys")"
+  done < "$TMPD/todo"
+  [ "$remaining" -eq 0 ] || exit 2
+  return 0
 }
 
 match() { # [signals file]
