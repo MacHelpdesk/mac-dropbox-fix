@@ -110,8 +110,9 @@ unlabelled="$(printf '%s\n' "$copying" | grep . | grep -vE 'verified|reported')"
 assert_eq "copying: every method carries an evidence label" "" "$unlabelled"
 internal="$(printf '%s\n' "$copying" | grep 'com.dropbox.internal')"
 assert_has "copying: a method mentions com.dropbox.internal" "com.dropbox.internal" "$internal"
-assert_eq  "copying: com.dropbox.internal lines are unverified" "" \
-  "$(printf '%s\n' "$internal" | grep . | grep -v 'unverified')"
+verified="$(printf '%s\n' "$copying" | grep -E '\| verified')"
+assert_eq "copying: verified lines name the macOS and Dropbox versions" "" \
+  "$(printf '%s\n' "$verified" | grep . | grep -vE 'macOS [0-9][0-9.]*.*Dropbox [0-9][0-9.]*')"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

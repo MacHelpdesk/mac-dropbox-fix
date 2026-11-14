@@ -54,7 +54,7 @@ The never-done list SHALL contain exactly these four items: making files online-
 
 ### Requirement: copying guidance states its verification status
 
-Every copying method the skill describes SHALL be followed by one of `verified`, `reported` or `unverified`, with the macOS and Dropbox versions for `verified`. The effect of copying Dropbox's internal extended attributes SHALL be marked `unverified` until the test-folder experiment is recorded.
+Every copying method the skill describes SHALL be followed by one of `verified`, `reported` or `unverified`, with the macOS and Dropbox versions for `verified`. A method that has not been tried in a Dropbox folder SHALL be labelled `unverified`; the effect of copying Dropbox's extended attributes was tried in the maintainer's test folder on 2026-11-14 and is labelled from that run.
 
 #### Scenario: no unlabelled copying advice
 
@@ -63,6 +63,6 @@ Every copying method the skill describes SHALL be followed by one of `verified`,
 
 ##### Example: copying section labels
 
-- **GIVEN** the copying section of `plugin/skills/dropbox-use/SKILL.md` before the test-folder experiment
+- **GIVEN** the copying section of `plugin/skills/dropbox-use/SKILL.md`
 - **WHEN** a test reads each method line
-- **THEN** every method line contains `verified`, `reported` or `unverified`, and the line about copying `com.dropbox.internal` contains `unverified`
+- **THEN** every method line contains `verified`, `reported` or `unverified`, a method line mentions `com.dropbox.internal`, and every line labelled `verified` names a macOS version and a Dropbox version

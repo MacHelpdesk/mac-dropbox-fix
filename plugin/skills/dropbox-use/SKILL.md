@@ -98,7 +98,11 @@ dropbox-fix.sh download PATH
 | 4 | 剩餘空間不夠，一個檔都沒讀 | 見 Step 2 |
 | 1 | 路徑錯誤 | 見 Step 1 |
 
-輸出有 `stopped=timeouts` 時，表示連續三個檔案讀取逾時就停了，最常見的原因是這台 Mac 沒有網路。請使用者確認網路後再跑一次。每個檔案的讀取上限是 `DROPBOX_FIX_READ_WAIT` 秒（預設 300）；網路正常但檔案很大時，可以設大一點再跑。
+stderr 每讀一個檔印一行 `pass <輪>, file <第幾個>/<這輪共幾個>: <路徑>`，讀完印 `done in`、`failed after` 或 `stopped after` 加秒數，長時間沒有結果時可以看出卡在哪個檔。
+
+逾時被停掉不等於下載失敗：Dropbox 會在背景繼續下載那個檔，下一輪重讀時常常一兩秒就好（2026-11-14 實測：200 MB 的檔第一輪 300 秒被停，第二輪 1 秒讀完）。Dropbox 一次下載一個檔，小檔會排在大檔後面，所以大檔下載中時，小檔也可能各花上一兩分鐘。
+
+輸出有 `stopped=timeouts` 時，表示連續三個檔案讀取逾時就停了。最常見的原因是這台 Mac 沒有網路；網路正常時，也可能是幾個小檔排在一個很大的檔後面。請使用者確認網路後再跑一次，背景已經下載的部分不會白費。每個檔案的讀取上限是 `DROPBOX_FIX_READ_WAIT` 秒（預設 300）；網路正常但檔案很大時，可以設大一點再跑。
 
 下載完再跑一次 `local-status`，確認 `online_only=0`。
 
@@ -114,9 +118,9 @@ dropbox-fix.sh download PATH
 |---|---|---|
 | 先 `download`，再用 `cp -pRX` 複製（保留修改時間、不帶延伸屬性），之後只補回 `com.apple.FinderInfo` | 117 個檔的副本與原檔 sha256 全部一致，修改時間保留；副本沒有 `com.dropbox.*` 屬性，多了 macOS 加上的 `com.apple.provenance` | verified：macOS 27.3、Dropbox 280.3.5020，2026-11-14 實測一次；Dropbox 有沒有上傳副本沒量 |
 | 先 `download`，再在同一個 Dropbox 資料夾裡 `mv`（改名或搬到子資料夾） | 搬移前後 sha256 一致，修改時間保留 | verified：macOS 27.3、Dropbox 280.3.5020，2026-11-14 實測一次；對僅線上檔案直接 `mv` 沒量 |
-| 一般的 `cp -R` 或 `cp -pR`，副本帶著 `com.dropbox.internal` | Dropbox 會不會因此把副本當成原檔，沒有量過 | unverified |
+| 一般的 `cp -p`，副本帶著原檔的 `com.dropbox.attrs` 與 `com.dropbox.internal` | 90 秒內 Dropbox 換上副本自己的 `com.dropbox.attrs`，沒有出現衝突的複本，副本沒有被當成原檔；不帶屬性的 `cp -pX` 副本同樣在 90 秒內拿到自己的屬性 | verified：macOS 27.3、Dropbox 280.3.5020，2026-11-14 實測一次（一個 40 byte 的檔）；副本有沒有出現在 dropbox.com 沒有在網頁上核對 |
 
-`-X` 也會丟掉 Finder 的顏色標記（`com.apple.FinderInfo`）。要保留時，對原本帶這個屬性的檔案逐一補回：`xattr -wx com.apple.FinderInfo "$(xattr -px com.apple.FinderInfo 原檔 | tr -d ' \n')" 副本`。
+`-X` 也會丟掉 Finder 的顏色標記（`com.apple.FinderInfo`）。要保留時，對原本帶這個屬性的檔案逐一補回：`xattr -wx com.apple.FinderInfo "$(xattr -px com.apple.FinderInfo 原檔 | tr -d ' \n')" 副本`。另外，檔案經過「設為僅供線上存取」再下載之後，Finder 顏色標記本身也會消失（2026-11-14 觀察一次），所以重要的標記不要只靠 Finder 顏色保存。
 
 複製完用 hash 比對：對來源與副本各做一份相對路徑的 `shasum -a 256` 清單，兩份要完全相同。
 
@@ -127,7 +131,9 @@ dropbox-fix.sh download PATH
 | 僅線上的檔案帶 `dataless` flag，`ls -l` 仍顯示完整大小 | 已實測（macOS 27.3、Dropbox 280.3.5020，2026-11-14） |
 | 讀取檔案內容會讓 File Provider 下載它 | 已實測一次：117 個檔、約 117 MB、約 18 分鐘；當時是四個檔平行讀取，不是 `download` 子命令 |
 | `local-status` 與 `download` 的輸出、結束碼、空間檢查、逾時、連續逾時就停 | 只在測試裡用替身指令驗過（`tests/test_local.sh`） |
-| `download` 在真的 Dropbox 資料夾上跑；離線時停得下來 | 未驗證 |
+| `local-status` 在真的 Dropbox 資料夾上，分得出本機與僅線上 | 已實測（macOS 27.3、Dropbox 280.3.5020，2026-11-14）：5 個檔設為僅供線上存取後量到 `online_only=5` |
+| `download` 在真的 Dropbox 資料夾上跑 | 已實測一次（macOS 27.3、Dropbox 280.3.5020，2026-11-14）：5 個檔、200 MB，712 秒，結束碼 0；大檔第一輪 300 秒被停、第二輪 1 秒讀完；沒有留下讀取程序 |
+| 離線時 `download` 停得下來（`stopped=timeouts`），停掉真的讀取 | 未驗證（只在替身測試裡驗過） |
 | Finder 右鍵選單裡 Dropbox 的「設為離線存取」與「設為僅供線上存取」 | 選單文字已核對（macOS 27.3、Dropbox 280.3.5020，繁體中文介面，2026-11-14）；英文介面的文字未核對 |
 | 下載後被系統回收成僅線上 | 未驗證 |
 | 其他 macOS 版本、其他 Dropbox 版本 | 未驗證 |

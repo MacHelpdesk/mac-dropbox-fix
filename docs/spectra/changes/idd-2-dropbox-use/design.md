@@ -105,7 +105,7 @@ The skill tells the user that a plain `cp` copies Dropbox's internal attributes 
 - [Free space can shrink while downloading] → the precheck is a guard against the obvious case only; a mid-run failure shows up as files still online-only and exit 2.
 - [Sequential reads are slower than the parallel run that was measured] → accepted for simplicity; revisit with measured timings.
 - [A read blocked in the kernel ignores TERM] → bounded wait, then KILL, then report and move on; stub tests cannot show this, so the offline step of the real-folder check confirms that stopping a read of a real online-only file works.
-- [Three consecutive timeouts can also come from three very large files on a slow but working connection] → the run stops and lists them; raising `DROPBOX_FIX_READ_WAIT` and running again downloads them.
+- [Three consecutive timeouts can also come from three very large files on a slow but working connection, or from small files queued behind one large download: Dropbox downloaded one file at a time in the real-folder run, and four tiny files each waited 78 to 123 seconds behind a 200 MB file] → the run stops and lists them; a stopped read does not cancel Dropbox's download (the 200 MB file read in 1 second on the next pass), so running again, or raising `DROPBOX_FIX_READ_WAIT`, picks them up.
 
 ## Migration Plan
 
