@@ -24,12 +24,14 @@ The plugin's hooks tell the model about the `dropbox-fix` and `dropbox-use` skil
 | My Dropbox is not syncing | hint |
 | Dropbox 很吃 CPU | hint |
 | 把報告放到 Dropbox | nothing |
+| Dropbox 裡的不動產估價表幫我整理一下 | nothing |
+| Dropbox 的同步數字一直不動 | hint |
 | build 卡住了 | nothing |
 
 ---
 ### Requirement: the first batch file command in a Dropbox folder is refused once
 
-`skill-hint.sh bash` SHALL print a `PreToolUse` JSON object with `permissionDecision` equal to `deny` and a `permissionDecisionReason` containing `mac-dropbox-fix:dropbox-use` when the decoded `tool_input.command` contains a verb from the closed list (`cp`, `mv`, `rsync`, `ditto`, `tar`, `zip`) at a command position and either the command or the `cwd` field points into a Dropbox folder. A command position is the start of the command, or directly after whitespace, `;`, `&`, `|`, `(`, a backquote or a quote; a verb directly preceded there by an absolute path also counts; the verb SHALL be followed by whitespace or the end of the command. Dropbox folder forms are a closed list: a path containing `Library/CloudStorage/Dropbox`, and `Dropbox` directly under the home directory written as `~/Dropbox`, `$HOME/Dropbox`, `${HOME}/Dropbox` or the expanded home path, each followed by `/`, whitespace, a quote, one of `;`, `)`, `|`, `&`, `<`, `>`, a backquote, or the end of the command. For every other command it SHALL print nothing and exit 0.
+`skill-hint.sh bash` SHALL print a `PreToolUse` JSON object with `permissionDecision` equal to `deny` and a `permissionDecisionReason` containing `mac-dropbox-fix:dropbox-use` when the decoded `tool_input.command` contains a verb from the closed list (`cp`, `mv`, `rsync`, `ditto`, `tar`, `zip`) at a command position and either the command or the `cwd` field points into a Dropbox folder. A command position is the start of the command, or directly after whitespace, `;`, `&`, `|`, `(`, a backquote or a quote; a verb directly preceded there by an absolute path also counts; the verb SHALL be followed by whitespace or the end of the command. Dropbox folder forms are a closed list: a path containing `Library/CloudStorage/Dropbox`, and `Dropbox` directly under the home directory written as `~/Dropbox`, `$HOME/Dropbox`, `${HOME}/Dropbox` or the expanded home path, each followed by `/`, whitespace, a quote, one of `;`, `)`, `|`, `&`, `<`, `>`, a backquote, or the end of the command. The `cwd` field points into a Dropbox folder when it contains `Library/CloudStorage/Dropbox` anywhere, or is `Dropbox` directly under the home directory or a path below it. For every other command it SHALL print nothing and exit 0.
 
 #### Scenario: copy out of a Dropbox folder
 
@@ -43,6 +45,7 @@ The plugin's hooks tell the model about the `dropbox-fix` and `dropbox-use` skil
 | cp -R ~/Library/CloudStorage/Dropbox/a /tmp/b | home | deny |
 | mv ~/Dropbox/x ~/Dropbox/y | home | deny |
 | tar czf /tmp/a.tgz notes | inside the Dropbox folder | deny |
+| tar czf /tmp/a.tgz notes | `/Volumes/x/Library/CloudStorage/Dropbox/w` | deny |
 | rsync -a "$HOME/Dropbox/a/" /tmp/a/ | home | deny |
 | cd ~/Dropbox; tar czf /tmp/a.tgz notes | home | deny |
 | (cd ~/Dropbox; zip -r /tmp/a.zip x) | home | deny |
@@ -57,7 +60,7 @@ The plugin's hooks tell the model about the `dropbox-fix` and `dropbox-use` skil
 ---
 ### Requirement: each skill is announced at most once per session
 
-The script SHALL create a marker file for the session and skill before printing a hint or a refusal, and SHALL print only when that creation succeeded in this run. A second matching input with the same `session_id` SHALL produce no output, however much time has passed. A different `session_id` SHALL be treated independently. The script SHALL NOT delete marker files.
+The script SHALL create a marker file for the session and skill before printing a hint or a refusal, and SHALL print only when that creation succeeded in this run. A second matching input with the same `session_id` SHALL produce no output, however much time has passed. A different `session_id` SHALL be treated independently. The script SHALL NOT delete marker files. A marker path that already exists in any form, including a symbolic link, SHALL count as an existing marker.
 
 #### Scenario: the refused command is sent again
 
@@ -81,6 +84,12 @@ The script SHALL create a marker file for the session and skill before printing 
 - **GIVEN** a marker directory where session `s1` was refused once and its marker file is dated 2025-01-01
 - **WHEN** a matching Bash input with session id `s2` is given, then one with session id `s1`
 - **THEN** the outputs are deny, nothing, and the marker file of `s1` still exists
+
+##### Example: marker path is a symbolic link
+
+- **GIVEN** a marker directory in which `s1.use` is a symbolic link to `/dev/null`
+- **WHEN** a matching Bash input with session id `s1` is given
+- **THEN** the output is nothing
 
 ---
 ### Requirement: any failure lets the prompt or command through
@@ -106,7 +115,7 @@ The script SHALL exit 0 with empty stdout when the input is not JSON, when a nee
 ---
 ### Requirement: a session already using a skill is left alone
 
-A Bash command that runs `dropbox-fix.sh` SHALL never be refused. Running means the script path is the program at the start of the command or directly after `;`, `&`, `|`, `(` or a backquote, optionally after environment assignments and one of `sh`, `bash`, `zsh`, `/bin/sh`, `/bin/bash`, `/bin/zsh`. Such a command SHALL record the marker of the skill it belongs to: `local-status` and `download` belong to `dropbox-use`, every other subcommand to `dropbox-fix`. A command that assigns a path ending in `dropbox-fix.sh` to a variable at the same positions SHALL record the `dropbox-fix` marker and not be refused. A command in which `dropbox-fix.sh` appears only as an argument of another program SHALL be treated like any other command. A prompt that starts with `/mac-dropbox-fix:dropbox-fix`, `/dropbox-fix`, `/mac-dropbox-fix:dropbox-use` or `/dropbox-use` SHALL record the matching marker and produce no output.
+A Bash command that runs `dropbox-fix.sh` SHALL never be refused. Running means the script path is the program at the start of the command or directly after `;`, `&`, `|`, `(`, a backquote or a line break, optionally after environment assignments and one of `sh`, `bash`, `zsh`, `/bin/sh`, `/bin/bash`, `/bin/zsh`. The script path is written unquoted, or inside double or single quotes, where it MUST be allowed to contain spaces. Such a command SHALL record the marker of the skill it belongs to: `local-status` and `download` belong to `dropbox-use`, every other subcommand to `dropbox-fix`. A command that assigns a path ending in `dropbox-fix.sh` to a variable at the same positions SHALL NOT be refused. When the same command runs that variable (`$NAME`, `${NAME}`, or either inside double quotes) at one of those positions, the subcommand after it SHALL decide the marker as above; with no such run the command SHALL record the `dropbox-fix` marker. A command in which `dropbox-fix.sh` appears only as an argument of another program SHALL be treated like any other command. A prompt that starts with `/mac-dropbox-fix:dropbox-fix`, `/dropbox-fix`, `/mac-dropbox-fix:dropbox-use` or `/dropbox-use` SHALL record the matching marker and produce no output.
 
 #### Scenario: the skill's own download then a copy
 
@@ -132,6 +141,17 @@ A Bash command that runs `dropbox-fix.sh` SHALL never be refused. Running means 
 | tar -czf /tmp/b.tgz ~/Dropbox/dropbox-fix.sh ~/Dropbox/data | deny | hint |
 | S=/p/scripts/dropbox-fix.sh; bash "$S" probe | nothing | nothing |
 | cd /p && DROPBOX_FIX_READ_WAIT=5 /bin/bash scripts/dropbox-fix.sh probe | nothing | nothing |
+| S=/p/scripts/dropbox-fix.sh; "$S" local-status ~/Dropbox/a | nothing | hint |
+
+##### Example: variable run before a copy
+
+| First Bash input (session `s1`) | Its output | Then `cp -R ~/Dropbox/a /tmp/a` |
+| --- | --- | --- |
+| S=/p/scripts/dropbox-fix.sh; "$S" local-status ~/Dropbox/a | nothing | nothing |
+| S="${CLAUDE_PLUGIN_ROOT}/scripts/dropbox-fix.sh"; bash "$S" download ~/Dropbox/a | nothing | nothing |
+| bash "/p/with space/scripts/dropbox-fix.sh" local-status ~/Dropbox/a | nothing | nothing |
+| a comment line, a line break, then bash /p/scripts/dropbox-fix.sh local-status ~/Dropbox/a | nothing | nothing |
+| S=/p/scripts/dropbox-fix.sh; "$S" probe | nothing | deny |
 
 ---
 ### Requirement: only decoded prompt, command and cwd fields are matched
@@ -157,7 +177,7 @@ Matching SHALL use the decoded `prompt` field in prompt mode, and the decoded `t
 ---
 ### Requirement: input without the word dropbox starts no second process
 
-When the raw input contains neither `dropbox` in any letter case nor the two characters `\u`, the script SHALL exit 0 without running `osascript`. In bash mode it SHALL also exit without running `osascript` when the raw input contains none of the listed verbs, does not contain `dropbox-fix.sh`, and does not contain `\u`. The raw input includes the `cwd` and `transcript_path` fields, so a session whose working directory is inside a Dropbox folder reaches `osascript` on every prompt.
+When the raw input contains neither `dropbox` in any letter case nor `\u00` followed by two hexadecimal digits, the script SHALL exit 0 without running `osascript` or any other program. In bash mode it SHALL also exit without running `osascript` when the raw input contains none of the listed verbs, does not contain `dropbox-fix.sh`, and does not contain `\u00` followed by two hexadecimal digits. The verbs are looked for in the whole raw input, not only in the command. The raw input includes the `cwd` and `transcript_path` fields, so a session whose working directory is inside a Dropbox folder reaches `osascript` on every prompt.
 
 #### Scenario: an ordinary command
 
@@ -171,6 +191,7 @@ When the raw input contains neither `dropbox` in any letter case nor the two cha
 | bash | command `git status`, cwd home | 0 |
 | bash | command `ls`, cwd inside the Dropbox folder, description `list` | 0 |
 | prompt | prompt `hello` , cwd home | 0 |
+| prompt | prompt `fix the \usepackage line`, cwd home | 0 |
 | prompt | prompt `hello`, cwd inside the Dropbox folder | 1 |
 | bash | command `cp ~/Dropbox/a /tmp/a`, cwd home | 1 |
 
@@ -194,7 +215,7 @@ When the raw input contains neither `dropbox` in any letter case nor the two cha
 ---
 ### Requirement: the plugin states that it runs hooks
 
-`README.md` SHALL contain a section that names both hook events, says the script runs on every prompt and every Bash command, and says a Bash command is refused at most once per session. The `description` in `plugin/.claude-plugin/plugin.json` SHALL mention the hooks and say that a script starts on every prompt and every Bash command. The verification tables in `README.md` and in both skill files SHALL each contain a row for the hooks that states whether a real Claude Code run was done.
+`README.md` SHALL contain a section that names both hook events, says the script runs on every prompt and every Bash command, and says a Bash command is refused at most once per session. The `description` in `plugin/.claude-plugin/plugin.json` SHALL mention the hooks and say that a script starts on every prompt and every Bash command. `CLAUDE.md` and both skill files SHALL say that a script starts on every prompt and every Bash command. The verification tables in `README.md` and in both skill files SHALL each contain a row for the hooks that states whether a real Claude Code run was done.
 
 #### Scenario: a reader looks for what the plugin does on its own
 
@@ -208,6 +229,7 @@ When the raw input contains neither `dropbox` in any letter case nor the two cha
 | README.md | `UserPromptSubmit`, `PreToolUse`, and the wording for once per session |
 | plugin/.claude-plugin/plugin.json description | `hook` and `每則訊息與每個 Bash 指令` |
 | plugin/skills/dropbox-fix/SKILL.md verification table | a row containing `hook` |
+| CLAUDE.md, plugin/skills/dropbox-fix/SKILL.md, plugin/skills/dropbox-use/SKILL.md | `每則訊息與每個 Bash 指令` |
 | plugin/skills/dropbox-use/SKILL.md verification table | a row containing `hook` |
 
 ---
