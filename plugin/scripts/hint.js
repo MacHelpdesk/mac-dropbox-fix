@@ -58,14 +58,16 @@ function promptVerdict(prompt) {
 }
 
 // A verb counts at a command position: at the start, or after whitespace, a separator,
-// an opening parenthesis, a backquote, or a slash (so /bin/cp counts and scp does not).
+// an opening parenthesis, a backquote or a quote. An absolute path may stand in front of it
+// there, so /bin/cp counts; scp does not, and neither does the last segment of ~/Dropbox/tar.
 function hasVerb(command) {
-  var pattern = new RegExp('(^|[\\s;&|(`/])(' + VERBS.join('|') + ')(\\s|$)');
+  var pattern = new RegExp('(^|[\\s;&|(`"\'])(/[^\\s;&|()`"\']*/)?(' + VERBS.join('|') + ')(\\s|$)');
   return pattern.test(command);
 }
 
+// A Dropbox path form ends at a slash, whitespace, a quote, a shell separator, or the end.
 function namesDropbox(command, home) {
-  var after = '(/|\\s|["\']|$)';
+  var after = '(/|\\s|["\']|[;)|&<>`]|$)';
   var forms = ['~/Dropbox', '\\$HOME/Dropbox', '\\$\\{HOME\\}/Dropbox'];
   var i;
   if (command.indexOf('Library/CloudStorage/Dropbox') !== -1) { return true; }
@@ -82,10 +84,26 @@ function insideDropbox(cwd, home) {
   return cwd === home + '/Dropbox' || cwd.indexOf(home + '/Dropbox/') === 0;
 }
 
+// Whether the command runs the plugin's own script, and for which skill. Running means the
+// script is the program at the start of the command or after ; & | ( or a backquote,
+// optionally after environment assignments and a shell name. Assigning its path to a
+// variable at those positions counts too. The name as an argument of another program
+// (a file being archived, say) does not.
+function ownScript(command) {
+  var position = '(?:^|[;&|(`])\\s*';
+  var token = '["\']?[^\\s"\';&|()`]*dropbox-fix\\.sh["\']?';
+  var end = '(?=\\s|$|[;&|)])';
+  var env = '(?:[A-Za-z_][A-Za-z0-9_]*=[^\\s;&|]*\\s+)*';
+  var shell = '(?:(?:/bin/)?(?:ba|z)?sh\\s+)?';
+  var ran = new RegExp(position + env + shell + token + '(?:\\s+([a-z-]+))?' + end).exec(command);
+  if (ran) { return USE_SUBCOMMANDS.indexOf(ran[1]) !== -1 ? 'using-use' : 'using-fix'; }
+  if (new RegExp(position + '[A-Za-z_][A-Za-z0-9_]*=' + token + end).test(command)) { return 'using-fix'; }
+  return '';
+}
+
 function bashVerdict(command, cwd, home) {
-  var own = /(^|[\s\/"'=;&|(])dropbox-fix\.sh["']?\s+([a-z-]+)/.exec(command);
-  if (own) { return USE_SUBCOMMANDS.indexOf(own[2]) !== -1 ? 'using-use' : 'using-fix'; }
-  if (/(^|[\s\/"'=;&|(])dropbox-fix\.sh(["']|\s|$)/.test(command)) { return 'using-fix'; }
+  var own = ownScript(command);
+  if (own) { return own; }
   if (!hasVerb(command)) { return 'none'; }
   if (namesDropbox(command, home) || insideDropbox(cwd, home)) { return 'hint-use'; }
   return 'none';

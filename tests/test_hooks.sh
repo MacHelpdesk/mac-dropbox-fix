@@ -1,7 +1,8 @@
 #!/bin/bash
 # Tests for the plugin's hooks: plugin/scripts/skill-hint.sh with plugin/scripts/hint.js,
 # and plugin/hooks/hooks.json. Hook input is synthetic JSON built here; the home directory
-# is a temporary one, so no real path appears in this file. Markers go to a temporary
+# is a made-up fixed string that is never created, so no real path appears in this file and
+# the input never depends on where the temporary directory is. Markers go to a temporary
 # directory per case.
 # Every test is tagged with the spec Example it checks: `spec-example: <capability> / <title>`.
 #
@@ -13,13 +14,12 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$REPO_ROOT/plugin/scripts/skill-hint.sh"
 HOOKS="$REPO_ROOT/plugin/hooks/hooks.json"
 
-# The directory name must not contain the word the prefilter looks for: these paths end
-# up in the cwd and transcript_path fields of the synthetic input.
 TMPD="$(mktemp -d "${TMPDIR:-/tmp}/hooks-test.XXXXXX")" || exit 2
 trap 'rm -rf "$TMPD"' EXIT
-THOME="$TMPD/home"
+# The home string goes into the cwd and transcript_path fields of the synthetic input, so
+# it must contain neither the word the prefilter looks for nor a listed verb.
+THOME="/hooktest/h"
 DBX="$THOME/Library/CloudStorage/Dropbox"
-mkdir -p "$DBX"
 TRANSCRIPT="$THOME/.claude/projects/-tmp-x/t.jsonl"
 
 pass=0
@@ -111,6 +111,12 @@ bash_case deny    'mv ~/Dropbox/x ~/Dropbox/y'                    "$THOME"
 bash_case deny    'tar czf /tmp/a.tgz notes'                      "$DBX/work"
 bash_case deny    'rsync -a "$HOME/Dropbox/a/" /tmp/a/'           "$THOME"
 bash_case deny    "ditto $THOME/Dropbox/a /tmp/a"                 "$THOME"
+bash_case deny    'cd ~/Dropbox; tar czf /tmp/a.tgz notes'        "$THOME"
+bash_case deny    '(cd ~/Dropbox; zip -r /tmp/a.zip x)'           "$THOME"
+bash_case deny    'SRC=$HOME/Dropbox; cp -R $SRC /tmp/a'          "$THOME"
+bash_case deny    'bash -c "cp -R ~/Dropbox/a /tmp/a"'            "$THOME"
+bash_case deny    '/bin/cp -R ~/Dropbox/a /tmp/a'                 "$THOME"
+bash_case nothing 'ls ~/Dropbox/tar'                              "$THOME"
 bash_case nothing 'ls ~/Library/CloudStorage/Dropbox'             "$THOME"
 bash_case nothing 'cp a.txt b.txt'                                "$THOME"
 bash_case nothing 'scp ~/Dropbox/x host:'                         "$THOME"
@@ -133,6 +139,26 @@ fresh
 run prompt "$(prompt_json s1 'Dropbox 卡住了' "$THOME")"; seq_out="$(kind)"
 run prompt "$(prompt_json s1 'Dropbox 卡住了' "$THOME")"; seq_out="$seq_out $(kind)"
 assert_eq "prompt: s1, s1" "hint nothing" "$seq_out"
+
+# --- spec-example: skill-trigger-hooks / an old marker survives another session
+fresh
+run bash "$(bash_json s1 'cp -R ~/Dropbox/a /tmp/a' "$THOME")"; seq_out="$(kind)"
+touch -t 202501010000 "$MARK/s1.use"
+run bash "$(bash_json s2 'cp -R ~/Dropbox/a /tmp/a' "$THOME")"; seq_out="$seq_out $(kind)"
+run bash "$(bash_json s1 'cp -R ~/Dropbox/a /tmp/a' "$THOME")"; seq_out="$seq_out $(kind)"
+assert_eq "old marker: s1, s2 after s1's marker is dated 2025, s1" "deny deny nothing" "$seq_out"
+assert_eq "old marker: s1's marker file still exists" "yes" "$([ -e "$MARK/s1.use" ] && echo yes || echo no)"
+
+# --- spec-example: skill-trigger-hooks / marker directory sources
+SRC_MATCH="$(bash_json s1 'cp -R ~/Dropbox/a /tmp/a' "$THOME")"
+DATA="$TMPD/data"; mkdir -p "$DATA"
+OUT="$(printf '%s' "$SRC_MATCH" | env -u DROPBOX_FIX_HINT_DIR HOME="$THOME" CLAUDE_PLUGIN_DATA="$DATA" /bin/bash "$SCRIPT" bash 2>/dev/null)"; RC=$?
+assert_eq "marker dir: CLAUDE_PLUGIN_DATA only" "deny/0" "$(kind)/$RC"
+assert_eq "marker dir: marker is hints/s1.use under CLAUDE_PLUGIN_DATA" "yes" "$([ -e "$DATA/hints/s1.use" ] && echo yes || echo no)"
+EMPTY_TMP="$TMPD/emptytmp"; mkdir -p "$EMPTY_TMP"
+OUT="$(printf '%s' "$SRC_MATCH" | env -u DROPBOX_FIX_HINT_DIR -u CLAUDE_PLUGIN_DATA HOME="$THOME" TMPDIR="$EMPTY_TMP" /bin/bash "$SCRIPT" bash 2>/dev/null)"; RC=$?
+assert_eq "marker dir: neither variable set" "nothing/0" "$(kind)/$RC"
+assert_eq "marker dir: neither variable set, nothing written to the temporary directory" "" "$(ls -A "$EMPTY_TMP")"
 
 # --- spec-example: skill-trigger-hooks / failure inputs
 MATCH="$(bash_json s1 'cp -R ~/Dropbox/a /tmp/a' "$THOME")"
@@ -192,6 +218,22 @@ run prompt "$(prompt_json s1 '/dropbox-use ~/Dropbox/a' "$THOME")"; seq_out="$(k
 run bash "$(bash_json s1 'cp -R ~/Dropbox/a /tmp/a' "$THOME")"; seq_out="$seq_out $(kind)"
 assert_eq "in use: /dropbox-use, then cp" "nothing nothing" "$seq_out"
 
+# --- spec-example: skill-trigger-hooks / script name as an argument
+fresh
+run bash "$(bash_json s1 'tar -czf /tmp/b.tgz ~/Dropbox/dropbox-fix.sh ~/Dropbox/data' "$THOME")"; seq_out="$(kind)"
+run prompt "$(prompt_json s1 'Dropbox 卡住了' "$THOME")"; seq_out="$seq_out $(kind)"
+assert_eq "script as argument: tar of a file with that name, then a stuck prompt" "deny hint" "$seq_out"
+
+fresh
+run bash "$(bash_json s1 'S=/p/scripts/dropbox-fix.sh; bash "$S" probe' "$THOME")"; seq_out="$(kind)"
+run prompt "$(prompt_json s1 'Dropbox 卡住了' "$THOME")"; seq_out="$seq_out $(kind)"
+assert_eq "script assigned to a variable, then a stuck prompt" "nothing nothing" "$seq_out"
+
+fresh
+run bash "$(bash_json s1 'cd /p && DROPBOX_FIX_READ_WAIT=5 /bin/bash scripts/dropbox-fix.sh probe' "$THOME")"; seq_out="$(kind)"
+run prompt "$(prompt_json s1 'Dropbox 卡住了' "$THOME")"; seq_out="$seq_out $(kind)"
+assert_eq "script run after cd and an environment assignment, then a stuck prompt" "nothing nothing" "$seq_out"
+
 # --- spec-example: skill-trigger-hooks / fields that do not count
 fresh
 run bash "$(bash_json s1 'cp a.txt b.txt' "$THOME" 'cp files from ~/Dropbox')"
@@ -209,6 +251,14 @@ fresh
 run prompt "{\"session_id\":\"s1\",\"cwd\":\"$THOME\",\"hook_event_name\":\"UserPromptSubmit\",\"prompt\":\"Dropbox \\u6c92\\u540c\\u6b65\"}"
 assert_eq "fields: prompt written with \\u escapes" "hint/0" "$(kind)/$RC"
 
+fresh
+run prompt "{\"session_id\":\"s1\",\"cwd\":\"$THOME\",\"hook_event_name\":\"UserPromptSubmit\",\"prompt\":\"\\u0044\\u0072\\u006f\\u0070\\u0062\\u006f\\u0078 卡住了\"}"
+assert_eq "fields: prompt with the word Dropbox written as escapes" "hint/0" "$(kind)/$RC"
+
+fresh
+run bash "{\"session_id\":\"s1\",\"cwd\":\"$THOME\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"\\u0063\\u0070 -R ~/\\u0044\\u0072\\u006f\\u0070\\u0062\\u006f\\u0078/a /tmp/a\"}}"
+assert_eq "fields: command with cp and Dropbox written as escapes" "deny/0" "$(kind)/$RC"
+
 # --- spec-example: skill-trigger-hooks / osascript invocations counted by a stub
 STUB_COUNT="$TMPD/stub-count"; mkdir -p "$STUB_COUNT"
 REAL_OSA="$(command -v osascript)"
@@ -225,8 +275,9 @@ count_case() { # expected mode json name
 }
 
 count_case 0 bash   "$(bash_json s1 'git status' "$THOME")"            "git status at home"
-count_case 0 bash   "$(bash_json s1 'ls' "$DBX/work")"                 "ls inside the Dropbox folder"
+count_case 0 bash   "$(bash_json s1 'ls' "$DBX/work" 'list')"          "ls inside the Dropbox folder"
 count_case 0 prompt "$(prompt_json s1 'hello' "$THOME")"               "prompt hello"
+count_case 1 prompt "$(prompt_json s1 'hello' "$DBX/work")"            "prompt hello inside the Dropbox folder"
 count_case 1 bash   "$(bash_json s1 'cp ~/Dropbox/a /tmp/a' "$THOME")" "cp from Dropbox"
 
 # --- spec-example: skill-trigger-hooks / hooks.json contents
@@ -269,6 +320,7 @@ assert_has "disclosure: the same README section names PreToolUse" "PreToolUse" "
 assert_has "disclosure: the same README section states the once-per-session limit" "每個 session 最多" "$readme_section"
 manifest_desc="$(grep '"description"' "$REPO_ROOT/plugin/.claude-plugin/plugin.json")"
 assert_has "disclosure: manifest description mentions the hooks" "hook" "$manifest_desc"
+assert_has "disclosure: manifest description says a script starts on every prompt and Bash command" "每則訊息與每個 Bash 指令" "$manifest_desc"
 for s in dropbox-fix dropbox-use; do
   table="$(awk '/^## 驗證到哪裡/ { on = 1; next } on && /^## / { exit } on' "$REPO_ROOT/plugin/skills/$s/SKILL.md" | grep '^|')"
   assert_has "disclosure: $s verification table has a hook row" "hook" "$table"

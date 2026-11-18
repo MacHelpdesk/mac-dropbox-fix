@@ -16,11 +16,14 @@
 # unless that creation succeeded.
 #
 # Stage one is this file: when the raw input does not mention dropbox (or, in bash mode,
-# none of the listed verbs), it exits without starting another process. Stage two is
+# none of the listed verbs), it exits without starting another process. Input that carries
+# a JSON \u escape always goes on, because an escape can hide those words. Stage two is
 # hint.js, which parses the JSON and matches decoded fields only.
 #
-# Markers: $DROPBOX_FIX_HINT_DIR, else $CLAUDE_PLUGIN_DATA/hints, else
-# $TMPDIR/mac-dropbox-fix-hints. One empty file per session and skill.
+# Markers: $DROPBOX_FIX_HINT_DIR (the tests set it), else $CLAUDE_PLUGIN_DATA/hints. With
+# neither, nothing is printed. One empty file per session and skill. This script never
+# deletes a marker: the marker is what keeps a session from being told twice, however
+# long the session lives.
 
 set -u
 
@@ -34,22 +37,24 @@ HERE="$(cd "$(dirname "$0")" 2>/dev/null && pwd)" || exit 0
 INPUT="$(cat 2>/dev/null)" || exit 0
 
 case "$INPUT" in
-  *[Dd][Rr][Oo][Pp][Bb][Oo][Xx]*) ;;
+  *'\u'*) ;;
+  *[Dd][Rr][Oo][Pp][Bb][Oo][Xx]*)
+    if [ "$MODE" = bash ]; then
+      case "$INPUT" in
+        *cp*|*mv*|*rsync*|*ditto*|*tar*|*zip*|*dropbox-fix.sh*) ;;
+        *) exit 0 ;;
+      esac
+    fi
+    ;;
   *) exit 0 ;;
 esac
-if [ "$MODE" = bash ]; then
-  case "$INPUT" in
-    *cp*|*mv*|*rsync*|*ditto*|*tar*|*zip*|*dropbox-fix.sh*) ;;
-    *) exit 0 ;;
-  esac
-fi
 
 if [ -n "${DROPBOX_FIX_HINT_DIR:-}" ]; then
   MARK_DIR="$DROPBOX_FIX_HINT_DIR"
 elif [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
   MARK_DIR="$CLAUDE_PLUGIN_DATA/hints"
 else
-  MARK_DIR="${TMPDIR:-/tmp}/mac-dropbox-fix-hints"
+  exit 0
 fi
 
 # A quick look at the session id, only to skip stage two when there is nothing left to
@@ -75,7 +80,6 @@ mark() { # fix|use
   mkdir -p "$MARK_DIR" 2>/dev/null || return 1
   [ -d "$MARK_DIR" ] || return 1
   ( set -C; : > "$MARK_DIR/$SESSION.$1" ) 2>/dev/null || return 1
-  find "$MARK_DIR" -type f \( -name '*.fix' -o -name '*.use' \) -mtime +14 -delete 2>/dev/null
   return 0
 }
 

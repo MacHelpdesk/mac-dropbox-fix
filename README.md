@@ -108,13 +108,13 @@ total_indexable=1283295
 | `PreToolUse`（Claude 執行每一個 Bash 指令之前） | 指令用到 `cp`、`mv`、`rsync`、`ditto`、`tar`、`zip`，而且指令或工作目錄指向 Dropbox 資料夾 | **這個指令這一次不執行**，改把 `mac-dropbox-fix:dropbox-use` 的說明回給 Claude。Claude 可以先載入 skill 量一下，或直接再送一次 |
 
 - **每個 session 最多各一次。** 說明出現過、或指令被擋過一次之後，同一個 session 不會再有第二次；指令重送就照常執行。
-- **成本。** 每則訊息與每個 Bash 指令都會啟動一次 `skill-hint.sh`。輸入裡沒有 `dropbox` 字樣（Bash 那一半再加上沒有上面六個動詞）時，它在第一步就結束，實測約 6 ms；有的話才用 `osascript` 解讀輸入，約 52 ms（macOS 27.3，各 10 次平均）。
+- **成本。** 每則訊息與每個 Bash 指令都會啟動一次 `skill-hint.sh`。輸入裡沒有 `dropbox` 字樣（Bash 那一半再加上沒有上面六個動詞）時，它在第一步就結束，實測約 6 ms；有的話才用 `osascript` 解讀輸入，約 52 ms（macOS 27.3，各 10 次平均）。這裡的「輸入」是 Claude Code 交給 hook 的整份資料，裡面有工作目錄與對話紀錄檔的路徑：**在 Dropbox 資料夾裡開的 session，每則訊息都會走到 `osascript` 那一步**，Bash 指令的說明文字裡剛好有動詞字樣時也是。
 - **出錯時放行。** 輸入讀不懂、`osascript` 失敗、記號檔寫不了、逾時（10 秒），訊息與指令都照常進行，不會因為 hook 壞掉而被擋。
-- **已經在用 skill 就不打擾。** 指令是 plugin 自己的 `dropbox-fix.sh`，或訊息是 `/mac-dropbox-fix:…` 開頭時，不擋、不附說明。
-- **會誤判。** 判斷只看指令的文字。指令裡同時出現動詞與 Dropbox 路徑、其實沒有動到 Dropbox 檔案時，也會被擋一次。
+- **已經在用 skill 就不打擾。** 指令在執行 plugin 自己的 `dropbox-fix.sh`（或把它的路徑存進變數），或訊息是 `/mac-dropbox-fix:…` 開頭時，不擋、不附說明。`dropbox-fix.sh` 只是別的指令的參數（例如被打包的檔案）時不算。
+- **會誤判。** 判斷只看指令的文字，不解析 shell 語法。會多擋的情況：指令裡同時出現動詞與 Dropbox 路徑、其實沒有動到 Dropbox 檔案；工作目錄在 Dropbox 資料夾裡、指令有那六個動詞之一但沒有寫任何 Dropbox 路徑（例如 `git mv`）。會漏掉的情況：Dropbox 路徑先存進變數、在另一個指令才用到；動詞經過別名或函式。多擋的只會發生一次，重送就執行。
 - **只擋 Bash 工具的指令。** 用其他工具讀寫 Dropbox 資料夾裡的檔案不在範圍內。
-- **寫入的東西。** 每個 session 最多兩個空的記號檔，放在 Claude Code 給這個 plugin 的資料目錄（`CLAUDE_PLUGIN_DATA`）底下的 `hints/`，檔名是 session 的代號。超過 14 天的會在下次寫入時刪掉。hook 不讀你的檔案內容，不連網路。
-- 詞表、動詞與路徑的寫法是封閉列舉，在 `plugin/scripts/hint.js` 開頭。不想要這兩個 hook，就停用這個 plugin；兩個 skill 仍然可以用 `/mac-dropbox-fix:dropbox-fix`、`/mac-dropbox-fix:dropbox-use` 直接叫。
+- **寫入的東西。** 每個 session 最多兩個空的記號檔，放在 Claude Code 給這個 plugin 的資料目錄（`CLAUDE_PLUGIN_DATA`）底下的 `hints/`，檔名是 session 的代號。hook 不會刪這些檔：記號在，同一個 session 才不會被擋第二次，隔多久接回來都一樣。想清掉可以自己刪 `hints/` 資料夾，影響只是進行中的 session 可能再被告知一次。Claude Code 沒有提供這個資料目錄時，hook 什麼都不做。hook 不讀你的檔案內容，不連網路。
+- 詞表、動詞與路徑的寫法是封閉列舉，在 `plugin/scripts/hint.js` 開頭。不想要這兩個 hook，目前的做法是停用這個 plugin，兩個 skill 也會一起停用。只關掉這個 plugin 的 hook、留下 skill 的做法，沒有驗證過。
 
 ## 會改動東西的兩個子命令
 
@@ -195,9 +195,9 @@ plugin/scripts/dropbox-fix.sh validate
 | `local-status`、`download` 的輸出、結束碼、空間檢查、逾時、重試與停止規則；`dropbox-use` 的四張表 | 只在測試裡用替身指令驗過（`tests/test_local.sh` 92 項、`tests/test_skill_use.sh` 27 項） |
 | 連線狀態下，讀到上限時停掉真的讀取 | 已實測兩次：之後沒有殘留的讀取程序 |
 | 離線時 `download` 停得下來；「設為離線存取」之後檔案還會不會被回收 | 未驗證（追蹤在 #3） |
-| hook 腳本對合成輸入的判斷：詞表、動詞與路徑、每個 session 一次、失敗時放行、只看解碼後的欄位 | 只在測試裡驗過（`tests/test_hooks.sh` 49 項） |
-| hook 在真的 Claude Code 裡：`UserPromptSubmit` 的說明送到模型；`PreToolUse` 在指令執行前擋下，同一個 session 第二次照常執行 | 已實測（Claude Code 2.1.327、macOS 27.3，`claude -p --plugin-dir plugin`，2026-11-18）：說明送到 1 次；擋下 3 次，每次重送都照常執行 |
-| 模型收到 hook 的說明之後載入對應的 skill | 已實測，次數很少（同上的版本，模型是 Sonnet）：訊息情境 1 次中 1 次載入 `dropbox-fix`，但那則訊息本身就提到 Dropbox 不同步，分不出是不是說明的作用；備份整個資料夾的情境，用現在的說明文字 1 次中 1 次先載入 `dropbox-use` 再跑 `local-status`。hook 不保證模型一定載入 |
+| hook 腳本對合成輸入的判斷：詞表、動詞與路徑、每個 session 一次、失敗時放行、只看解碼後的欄位 | 只在測試裡驗過（`tests/test_hooks.sh` 68 項） |
+| hook 在真的 Claude Code 裡：`UserPromptSubmit` 的說明送到模型；`PreToolUse` 在指令執行前擋下，同一個 session 第二次照常執行 | 已實測（Claude Code 2.1.327、macOS 27.3，`claude -p --plugin-dir plugin`，2026-11-18）：說明送到 1 次；擋下 4 次，每次重送都照常執行 |
+| 模型收到 hook 的說明之後載入對應的 skill | 已實測，次數很少（同上的版本，模型是 Sonnet）：訊息情境 1 次中 1 次載入 `dropbox-fix`，但那則訊息本身就提到 Dropbox 不同步，分不出是不是說明的作用；用現在的說明文字，2 次中 2 次先載入 `dropbox-use` 再跑 `local-status`（備份整個資料夾、複製單一路徑各 1 次）。hook 不保證模型一定載入 |
 | 從 marketplace 安裝後的 hook、subagent 裡的 hook、工作目錄在 Dropbox 資料夾裡的實際 session | 未驗證 |
 | 其他 macOS 與 Dropbox 版本 | 未驗證。`fileproviderctl dump` 的格式沒有公開文件 |
 
