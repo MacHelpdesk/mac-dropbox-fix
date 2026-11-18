@@ -23,7 +23,7 @@ ObjC.import('Foundation');
 var STUCK_TERMS = [
   /卡住/, /卡在/, /卡了/,
   /不同步/, /沒同步/, /沒有同步/, /沒在同步/, /無法同步/, /不能同步/, /同步不了/, /同步失敗/, /同步中/,
-  /不動/, /怪怪的/,
+  /不動(?!產)/, /怪怪的/,
   /吃.{0,6}cpu/i, /high\s+cpu/i,
   /not\s+sync/i, /n['’]t\s+sync/i, /stopped\s+syncing/i, /out\s+of\s+sync/i,
   /sync(ing)?\s+(issue|problem|error)/i, /stuck/i
@@ -79,26 +79,33 @@ function namesDropbox(command, home) {
 }
 
 function insideDropbox(cwd, home) {
-  if (!cwd || !home) { return false; }
-  if (cwd.indexOf(home + '/Library/CloudStorage/Dropbox') === 0) { return true; }
+  if (!cwd) { return false; }
+  if (cwd.indexOf('Library/CloudStorage/Dropbox') !== -1) { return true; }
+  if (!home) { return false; }
   return cwd === home + '/Dropbox' || cwd.indexOf(home + '/Dropbox/') === 0;
 }
 
 // Whether the command runs the plugin's own script, and for which skill. Running means the
-// script is the program at the start of the command or after ; & | ( or a backquote,
-// optionally after environment assignments and a shell name. Assigning its path to a
-// variable at those positions counts too. The name as an argument of another program
-// (a file being archived, say) does not.
+// script is the program at the start of the command or after ; & | ( a backquote or a line
+// break, optionally after environment assignments and a shell name. The path is unquoted,
+// or quoted (then it may contain spaces). A path assigned to a variable counts too: when
+// the same command runs that variable, the subcommand after it decides the skill. The name
+// as an argument of another program (a file being archived, say) does not count.
 function ownScript(command) {
-  var position = '(?:^|[;&|(`])\\s*';
-  var token = '["\']?[^\\s"\';&|()`]*dropbox-fix\\.sh["\']?';
+  var position = '(?:^|[;&|(`\\n])\\s*';
+  var token = '(?:"[^"]*dropbox-fix\\.sh"|\'[^\']*dropbox-fix\\.sh\'|[^\\s"\'=;&|()`]*dropbox-fix\\.sh)';
+  var sub = '(?:[ \\t]+([a-z-]+))?';
   var end = '(?=\\s|$|[;&|)])';
   var env = '(?:[A-Za-z_][A-Za-z0-9_]*=[^\\s;&|]*\\s+)*';
   var shell = '(?:(?:/bin/)?(?:ba|z)?sh\\s+)?';
-  var ran = new RegExp(position + env + shell + token + '(?:\\s+([a-z-]+))?' + end).exec(command);
-  if (ran) { return USE_SUBCOMMANDS.indexOf(ran[1]) !== -1 ? 'using-use' : 'using-fix'; }
-  if (new RegExp(position + '[A-Za-z_][A-Za-z0-9_]*=' + token + end).test(command)) { return 'using-fix'; }
-  return '';
+  var skillOf = function (match) { return USE_SUBCOMMANDS.indexOf(match[1]) !== -1 ? 'using-use' : 'using-fix'; };
+  var ran = new RegExp(position + env + shell + token + sub + end).exec(command);
+  var assigned, viaName;
+  if (ran) { return skillOf(ran); }
+  assigned = new RegExp(position + '([A-Za-z_][A-Za-z0-9_]*)=' + token + end).exec(command);
+  if (!assigned) { return ''; }
+  viaName = new RegExp(position + env + shell + '"?\\$\\{?' + assigned[1] + '\\}?"?' + sub + end).exec(command);
+  return viaName ? skillOf(viaName) : 'using-fix';
 }
 
 function bashVerdict(command, cwd, home) {

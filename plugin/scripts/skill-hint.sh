@@ -17,7 +17,8 @@
 #
 # Stage one is this file: when the raw input does not mention dropbox (or, in bash mode,
 # none of the listed verbs), it exits without starting another process. Input that carries
-# a JSON \u escape always goes on, because an escape can hide those words. Stage two is
+# \u00 and two hexadecimal digits always goes on, because such an escape can hide a letter
+# of those words. Stage two is
 # hint.js, which parses the JSON and matches decoded fields only.
 #
 # Markers: $DROPBOX_FIX_HINT_DIR (the tests set it), else $CLAUDE_PLUGIN_DATA/hints. With
@@ -33,11 +34,14 @@ case "$MODE" in
   *) exit 0 ;;
 esac
 
-HERE="$(cd "$(dirname "$0")" 2>/dev/null && pwd)" || exit 0
-INPUT="$(cat 2>/dev/null)" || exit 0
+# Builtins only up to the prefilter: an input that fails it starts no other program.
+HERE="${0%/*}"
+[ "$HERE" = "$0" ] && HERE=.
+INPUT=""
+IFS= read -r -d '' INPUT
 
 case "$INPUT" in
-  *'\u'*) ;;
+  *'\u00'[0-9A-Fa-f][0-9A-Fa-f]*) ;;
   *[Dd][Rr][Oo][Pp][Bb][Oo][Xx]*)
     if [ "$MODE" = bash ]; then
       case "$INPUT" in
@@ -79,6 +83,9 @@ esac
 mark() { # fix|use
   mkdir -p "$MARK_DIR" 2>/dev/null || return 1
   [ -d "$MARK_DIR" ] || return 1
+  # noclobber refuses only an existing regular file; a symbolic link or a pipe at the
+  # marker path would otherwise count as newly created.
+  if [ -e "$MARK_DIR/$SESSION.$1" ] || [ -L "$MARK_DIR/$SESSION.$1" ]; then return 1; fi
   ( set -C; : > "$MARK_DIR/$SESSION.$1" ) 2>/dev/null || return 1
   return 0
 }

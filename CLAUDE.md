@@ -33,7 +33,7 @@ Changes can be parked（暫存）— temporarily moved out of `docs/spectra/chan
 
 ## Purpose
 
-Dropbox 在 Mac 上不同步時的量測與修復，以及在 Dropbox 資料夾裡動檔案之前確認檔案在不在本機。五個部分：兩個 skill（`dropbox-fix`、`dropbox-use`）、一份已知問題的知識庫（JSON）、一支量測、比對、檢查與下載的腳本、兩個在用得上時告訴 Claude 有這些 skill 的 hook。
+Dropbox 在 Mac 上不同步時的量測與修復，以及在 Dropbox 資料夾裡動檔案之前確認檔案在不在本機。五個部分：兩個 skill（`dropbox-fix`、`dropbox-use`）、一份已知問題的知識庫（JSON）、一支量測、比對、檢查與下載的腳本、兩個在用得上時告訴 Claude 有這些 skill 的 hook（每則訊息與每個 Bash 指令都會啟動 hook 的腳本）。
 
 與 [`mac-printer-setup`](https://github.com/MacHelpdesk/mac-printer-setup) 同一個系列：先量測，再判讀，最後才動手。
 
@@ -107,7 +107,7 @@ bash tests/test_hooks.sh       # hook 腳本、hooks.json、文件裡對 hook �
 - **僅線上只看 `dataless` flag，不看大小**。佔位檔的 `st_size` 是完整大小。`find` 不加 `-L`；直接給的檔案路徑是 symlink 時拒絕。
 - **`download` 印出的路徑要過 `relative`**：控制字元換成 `?`，否則檔名能在 stdout 多造一行 `key=value`。不要改用 `printf %q`，它會把中文檔名變成跳脫碼。
 - **hook 任何失敗都放行，而且每個 session 最多擋一次**。`skill-hint.sh` 的結束碼一律是 0；先用 noclobber 建立記號檔，建立成功才印出擋下的 JSON。不要把這個順序倒過來，也不要加會讓它在失敗時擋下的路徑。**`skill-hint.sh` 不可以刪記號檔**（依時間清理也不行）：記號被刪，接回來的舊 session 就會被擋第二次。記號目錄只有兩個來源：`DROPBOX_FIX_HINT_DIR`（測試用）與 `CLAUDE_PLUGIN_DATA/hints`，都沒有就什麼都不印。`hooks.json` 的每個 hook 都要有 `timeout`（`PreToolUse` 的預設是 600 秒）。
-- **hook 只比對解碼後的 `prompt`、`tool_input.command`、`cwd`**。原始輸入裡的 `transcript_path` 與 `description` 也可能含 Dropbox；`skill-hint.sh` 對原始輸入做的只是「要不要啟動 `osascript`」的粗篩；原始輸入裡有 `\u` 跳脫時一律交給 `hint.js`，因為跳脫可以把粗篩要找的字藏起來。測試用的家目錄是固定的假字串，不可以改回暫存目錄底下的路徑（路徑裡剛好有動詞字樣時，計數的測試會失敗）。
+- **hook 只比對解碼後的 `prompt`、`tool_input.command`、`cwd`**。原始輸入裡的 `transcript_path` 與 `description` 也可能含 Dropbox；`skill-hint.sh` 對原始輸入做的只是「要不要啟動 `osascript`」的粗篩；原始輸入裡有 `\u00` 加兩個十六進位數字時一律交給 `hint.js`，因為這種跳脫可以把粗篩要找的字藏起來；粗篩之前只用 bash 內建指令（不用 `cat`、`dirname`）。測試用的家目錄是固定的假字串，不可以改回暫存目錄底下的路徑（路徑裡剛好有動詞字樣時，計數的測試會失敗）。
 - **改 `hint.js` 開頭的三個列舉（詞表、動詞、子命令）時**，同時改四處：規格 `skill-trigger-hooks`、`tests/test_hooks.sh`、README〈plugin 會自己做的事〉、CHANGELOG。擋下時的說明文字會影響模型載不載入 skill（實測過兩種寫法，結果不同），改了要用 `claude -p --plugin-dir plugin` 重跑。
 - **`kb.js` 與 `hint.js` 跑在 JXA**：沒有 `console.log` 以外的標準輸出函式，輸出一律走檔案開頭的 `out`／`err`。語法維持 ES5，JXA 對較新的語法支援不一致。
 

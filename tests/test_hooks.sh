@@ -43,7 +43,14 @@ assert_has() { # name needle haystack
 # A new, empty marker directory.
 fresh() { n=$((n + 1)); MARK="$TMPD/mark.$n"; mkdir -p "$MARK"; }
 
-jesc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+# Escapes backslash, double quote and line break for a JSON string.
+LINE_BREAK='
+'
+jesc() {
+  local s
+  s="$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  printf '%s' "${s//$LINE_BREAK/\\n}"
+}
 
 prompt_json() { # session prompt cwd [transcript]
   printf '{"session_id":"%s","transcript_path":"%s","cwd":"%s","hook_event_name":"UserPromptSubmit","prompt":"%s"}' \
@@ -99,6 +106,8 @@ prompt_case hint    'Dropbox 卡住了'
 prompt_case hint    'My Dropbox is not syncing'
 prompt_case hint    'Dropbox 很吃 CPU'
 prompt_case nothing '把報告放到 Dropbox'
+prompt_case nothing 'Dropbox 裡的不動產估價表幫我整理一下'
+prompt_case hint    'Dropbox 的同步數字一直不動'
 prompt_case nothing 'build 卡住了'
 
 fresh
@@ -109,6 +118,7 @@ assert_eq "prompt hint is one JSON object" "yes" "$(is_json_object)"
 bash_case deny    'cp -R ~/Library/CloudStorage/Dropbox/a /tmp/b' "$THOME"
 bash_case deny    'mv ~/Dropbox/x ~/Dropbox/y'                    "$THOME"
 bash_case deny    'tar czf /tmp/a.tgz notes'                      "$DBX/work"
+bash_case deny    'tar czf /tmp/a.tgz notes'                      "/Volumes/x/Library/CloudStorage/Dropbox/w"
 bash_case deny    'rsync -a "$HOME/Dropbox/a/" /tmp/a/'           "$THOME"
 bash_case deny    "ditto $THOME/Dropbox/a /tmp/a"                 "$THOME"
 bash_case deny    'cd ~/Dropbox; tar czf /tmp/a.tgz notes'        "$THOME"
@@ -148,6 +158,12 @@ run bash "$(bash_json s2 'cp -R ~/Dropbox/a /tmp/a' "$THOME")"; seq_out="$seq_ou
 run bash "$(bash_json s1 'cp -R ~/Dropbox/a /tmp/a' "$THOME")"; seq_out="$seq_out $(kind)"
 assert_eq "old marker: s1, s2 after s1's marker is dated 2025, s1" "deny deny nothing" "$seq_out"
 assert_eq "old marker: s1's marker file still exists" "yes" "$([ -e "$MARK/s1.use" ] && echo yes || echo no)"
+
+# --- spec-example: skill-trigger-hooks / marker path is a symbolic link
+fresh
+ln -s /dev/null "$MARK/s1.use"
+run bash "$(bash_json s1 'cp -R ~/Dropbox/a /tmp/a' "$THOME")"
+assert_eq "marker path is a symbolic link to /dev/null" "nothing/0" "$(kind)/$RC"
 
 # --- spec-example: skill-trigger-hooks / marker directory sources
 SRC_MATCH="$(bash_json s1 'cp -R ~/Dropbox/a /tmp/a' "$THOME")"
@@ -234,6 +250,26 @@ run bash "$(bash_json s1 'cd /p && DROPBOX_FIX_READ_WAIT=5 /bin/bash scripts/dro
 run prompt "$(prompt_json s1 'Dropbox 卡住了' "$THOME")"; seq_out="$seq_out $(kind)"
 assert_eq "script run after cd and an environment assignment, then a stuck prompt" "nothing nothing" "$seq_out"
 
+fresh
+run bash "$(bash_json s1 'S=/p/scripts/dropbox-fix.sh; "$S" local-status ~/Dropbox/a' "$THOME")"; seq_out="$(kind)"
+run prompt "$(prompt_json s1 'Dropbox 卡住了' "$THOME")"; seq_out="$seq_out $(kind)"
+assert_eq "variable run of local-status leaves the stuck hint available" "nothing hint" "$seq_out"
+
+# --- spec-example: skill-trigger-hooks / variable run before a copy
+then_cp() { # expected-pair name first-command
+  fresh
+  run bash "$(bash_json s1 "$3" "$THOME")"; seq_out="$(kind)"
+  run bash "$(bash_json s1 'cp -R ~/Dropbox/a /tmp/a' "$THOME")"; seq_out="$seq_out $(kind)"
+  assert_eq "then cp: $2" "$1" "$seq_out"
+}
+NL='
+'
+then_cp "nothing nothing" "variable, quoted run, local-status" 'S=/p/scripts/dropbox-fix.sh; "$S" local-status ~/Dropbox/a'
+then_cp "nothing nothing" "quoted assignment, bash run, download" 'S="${CLAUDE_PLUGIN_ROOT}/scripts/dropbox-fix.sh"; bash "$S" download ~/Dropbox/a'
+then_cp "nothing nothing" "quoted path with a space" 'bash "/p/with space/scripts/dropbox-fix.sh" local-status ~/Dropbox/a'
+then_cp "nothing nothing" "comment line, line break, then the script" "# measure first${NL}bash /p/scripts/dropbox-fix.sh local-status ~/Dropbox/a"
+then_cp "nothing deny"    "variable run of probe belongs to the other skill" 'S=/p/scripts/dropbox-fix.sh; "$S" probe'
+
 # --- spec-example: skill-trigger-hooks / fields that do not count
 fresh
 run bash "$(bash_json s1 'cp a.txt b.txt' "$THOME" 'cp files from ~/Dropbox')"
@@ -277,6 +313,7 @@ count_case() { # expected mode json name
 count_case 0 bash   "$(bash_json s1 'git status' "$THOME")"            "git status at home"
 count_case 0 bash   "$(bash_json s1 'ls' "$DBX/work" 'list')"          "ls inside the Dropbox folder"
 count_case 0 prompt "$(prompt_json s1 'hello' "$THOME")"               "prompt hello"
+count_case 0 prompt "$(prompt_json s1 'fix the \usepackage line' "$THOME")" "prompt with a literal backslash-u"
 count_case 1 prompt "$(prompt_json s1 'hello' "$DBX/work")"            "prompt hello inside the Dropbox folder"
 count_case 1 bash   "$(bash_json s1 'cp ~/Dropbox/a /tmp/a' "$THOME")" "cp from Dropbox"
 
@@ -321,6 +358,9 @@ assert_has "disclosure: the same README section states the once-per-session limi
 manifest_desc="$(grep '"description"' "$REPO_ROOT/plugin/.claude-plugin/plugin.json")"
 assert_has "disclosure: manifest description mentions the hooks" "hook" "$manifest_desc"
 assert_has "disclosure: manifest description says a script starts on every prompt and Bash command" "每則訊息與每個 Bash 指令" "$manifest_desc"
+for f in CLAUDE.md plugin/skills/dropbox-fix/SKILL.md plugin/skills/dropbox-use/SKILL.md; do
+  assert_has "disclosure: $f says a script starts on every prompt and Bash command" "每則訊息與每個 Bash 指令" "$(cat "$REPO_ROOT/$f")"
+done
 for s in dropbox-fix dropbox-use; do
   table="$(awk '/^## 驗證到哪裡/ { on = 1; next } on && /^## / { exit } on' "$REPO_ROOT/plugin/skills/$s/SKILL.md" | grep '^|')"
   assert_has "disclosure: $s verification table has a hook row" "hook" "$table"
