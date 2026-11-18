@@ -137,4 +137,5 @@ stderr 每讀一個檔印一行 `pass <輪>, file <第幾個>/<這輪共幾個>:
 | 離線時 `download` 停得下來（`stopped=timeouts`） | 未驗證（只在替身測試裡驗過） |
 | Finder 右鍵選單裡 Dropbox 的「設為離線存取」與「設為僅供線上存取」 | 選單文字已核對（macOS 27.3、Dropbox 280.3.5020，繁體中文介面，2026-11-14）；英文介面的文字未核對 |
 | 下載後被系統回收成僅線上 | 未驗證 |
+| plugin 的 hook：Bash 指令要在 Dropbox 資料夾裡複製、搬移或打包時，每個 session 第一次先擋下並說明這個 skill | 已實測（Claude Code 2.1.327、macOS 27.3，2026-11-18）：擋下 3 次，都發生在指令執行之前，重送都照常執行；用現在的說明文字，備份整個資料夾的情境 1 次中 1 次先載入這個 skill。次數很少，hook 不保證模型一定載入。判斷規則只在 `tests/test_hooks.sh` 驗過 |
 | 其他 macOS 版本、其他 Dropbox 版本 | 未驗證 |

@@ -4,7 +4,7 @@ Dropbox 在 Mac 上卡住不同步時，量測 Dropbox 與 macOS File Provider �
 
 與 [`mac-printer-setup`](https://github.com/MacHelpdesk/mac-printer-setup)、[`mac-network-test`](https://github.com/MacHelpdesk/mac-network-test) 同一個系列：先量測，再判讀，最後才動手。
 
-> **狀態：v0.2.0。** 不同步的知識庫裡，兩筆條目在 macOS 27.3、Dropbox 280.3.5012 上實際發生並處理過，各一次；其餘來自更早的事故紀錄或沒有實測，每一筆都標了狀態。檢查與下載僅線上檔案的部分，在 macOS 27.3、Dropbox 280.3.5020 的測試資料夾實測過一次；離線時的行為還沒實測。
+> **狀態：v0.3.0。** 不同步的知識庫裡，兩筆條目在 macOS 27.3、Dropbox 280.3.5012 上實際發生並處理過，各一次；其餘來自更早的事故紀錄或沒有實測，每一筆都標了狀態。檢查與下載僅線上檔案的部分，在 macOS 27.3、Dropbox 280.3.5020 的測試資料夾實測過一次；離線時的行為還沒實測。0.3.0 加上兩個 hook，在 Claude Code 2.1.327 上各實跑過，次數很少，見〈驗證到哪裡〉。
 
 ## 它解決什麼
 
@@ -26,7 +26,7 @@ Dropbox 在 Mac 上分成兩半：選單列的主程式，以及由 macOS 的 `f
 
 範圍是封閉的：Mac 上以 File Provider 運作的 Dropbox（資料夾在 `~/Library/CloudStorage` 底下），只處理兩件事：不同步時的量測與處理，以及動檔案之前確認它們在不在這台 Mac 上。Dropbox 帳號、空間額度、分享連結、選擇性同步的設定、Dropbox 的網頁與 API、其他雲端服務都不處理。
 
-## 四個部分
+## 五個部分
 
 | 部分 | 位置 | 做什麼 |
 |---|---|---|
@@ -34,6 +34,7 @@ Dropbox 在 Mac 上分成兩半：選單列的主程式，以及由 macOS 的 `f
 | skill | `/mac-dropbox-fix:dropbox-use` | 動檔案之前：量哪些是僅線上 → 要下載就先問 → 下載並再量一次 → 說明複製方法的驗證狀態 |
 | 知識庫 | `plugin/data/problems.json` | 每筆問題的症狀、量得到的訊號、原因、解法、試過無效的做法、驗證到哪裡 |
 | 腳本 | `plugin/scripts/dropbox-fix.sh` | 量測、比對、檢查與下載僅線上的檔案；會改動東西的子命令見下文 |
+| hook | `plugin/hooks/hooks.json`、`plugin/scripts/skill-hint.sh` | 在用得上 skill 的時候告訴 Claude 有這個 skill；見〈plugin 會自己做的事〉 |
 
 ## 安裝
 
@@ -96,6 +97,24 @@ total_indexable=1283295
 ```
 
 讀得到 Dropbox 的 `Domains.plist` 時還會有一行 `domain_count`。讀不到的值不會出現，或寫成 `unknown`：系統很忙時 `fileproviderd` 對兩個索引數字回報逾時，那兩行就沒有。連結了兩個 Dropbox 帳號（`domain_count` 大於 1）時，這一版不讀 domain 的狀態。
+
+## plugin 會自己做的事
+
+裝了很多 skill 的機器上，Claude Code 的 skill 清單會把描述拿掉、只留名稱，Claude 就看不到「什麼時候該用這個 skill」。所以這個 plugin 帶了兩個 hook，在用得上的時候告訴 Claude。裝了這個 plugin，下面兩件事就會發生：
+
+| 事件 | 什麼時候有動作 | 做什麼 |
+|---|---|---|
+| `UserPromptSubmit`（你送出每一則訊息時） | 訊息提到 Dropbox，而且有「卡住、不同步」這一類的詞 | 隨訊息附上一段說明，告訴 Claude 有 `mac-dropbox-fix:dropbox-fix`。你的訊息照常送出 |
+| `PreToolUse`（Claude 執行每一個 Bash 指令之前） | 指令用到 `cp`、`mv`、`rsync`、`ditto`、`tar`、`zip`，而且指令或工作目錄指向 Dropbox 資料夾 | **這個指令這一次不執行**，改把 `mac-dropbox-fix:dropbox-use` 的說明回給 Claude。Claude 可以先載入 skill 量一下，或直接再送一次 |
+
+- **每個 session 最多各一次。** 說明出現過、或指令被擋過一次之後，同一個 session 不會再有第二次；指令重送就照常執行。
+- **成本。** 每則訊息與每個 Bash 指令都會啟動一次 `skill-hint.sh`。輸入裡沒有 `dropbox` 字樣（Bash 那一半再加上沒有上面六個動詞）時，它在第一步就結束，實測約 6 ms；有的話才用 `osascript` 解讀輸入，約 52 ms（macOS 27.3，各 10 次平均）。
+- **出錯時放行。** 輸入讀不懂、`osascript` 失敗、記號檔寫不了、逾時（10 秒），訊息與指令都照常進行，不會因為 hook 壞掉而被擋。
+- **已經在用 skill 就不打擾。** 指令是 plugin 自己的 `dropbox-fix.sh`，或訊息是 `/mac-dropbox-fix:…` 開頭時，不擋、不附說明。
+- **會誤判。** 判斷只看指令的文字。指令裡同時出現動詞與 Dropbox 路徑、其實沒有動到 Dropbox 檔案時，也會被擋一次。
+- **只擋 Bash 工具的指令。** 用其他工具讀寫 Dropbox 資料夾裡的檔案不在範圍內。
+- **寫入的東西。** 每個 session 最多兩個空的記號檔，放在 Claude Code 給這個 plugin 的資料目錄（`CLAUDE_PLUGIN_DATA`）底下的 `hints/`，檔名是 session 的代號。超過 14 天的會在下次寫入時刪掉。hook 不讀你的檔案內容，不連網路。
+- 詞表、動詞與路徑的寫法是封閉列舉，在 `plugin/scripts/hint.js` 開頭。不想要這兩個 hook，就停用這個 plugin；兩個 skill 仍然可以用 `/mac-dropbox-fix:dropbox-fix`、`/mac-dropbox-fix:dropbox-use` 直接叫。
 
 ## 會改動東西的兩個子命令
 
@@ -176,6 +195,10 @@ plugin/scripts/dropbox-fix.sh validate
 | `local-status`、`download` 的輸出、結束碼、空間檢查、逾時、重試與停止規則；`dropbox-use` 的四張表 | 只在測試裡用替身指令驗過（`tests/test_local.sh` 92 項、`tests/test_skill_use.sh` 27 項） |
 | 連線狀態下，讀到上限時停掉真的讀取 | 已實測兩次：之後沒有殘留的讀取程序 |
 | 離線時 `download` 停得下來；「設為離線存取」之後檔案還會不會被回收 | 未驗證（追蹤在 #3） |
+| hook 腳本對合成輸入的判斷：詞表、動詞與路徑、每個 session 一次、失敗時放行、只看解碼後的欄位 | 只在測試裡驗過（`tests/test_hooks.sh` 49 項） |
+| hook 在真的 Claude Code 裡：`UserPromptSubmit` 的說明送到模型；`PreToolUse` 在指令執行前擋下，同一個 session 第二次照常執行 | 已實測（Claude Code 2.1.327、macOS 27.3，`claude -p --plugin-dir plugin`，2026-11-18）：說明送到 1 次；擋下 3 次，每次重送都照常執行 |
+| 模型收到 hook 的說明之後載入對應的 skill | 已實測，次數很少（同上的版本，模型是 Sonnet）：訊息情境 1 次中 1 次載入 `dropbox-fix`，但那則訊息本身就提到 Dropbox 不同步，分不出是不是說明的作用；備份整個資料夾的情境，用現在的說明文字 1 次中 1 次先載入 `dropbox-use` 再跑 `local-status`。hook 不保證模型一定載入 |
+| 從 marketplace 安裝後的 hook、subagent 裡的 hook、工作目錄在 Dropbox 資料夾裡的實際 session | 未驗證 |
 | 其他 macOS 與 Dropbox 版本 | 未驗證。`fileproviderctl dump` 的格式沒有公開文件 |
 
 ## 需求

@@ -169,4 +169,5 @@ dropbox-fix.sh match
 | 其餘訊號（sync anchor、殘留的 sqlite3、沒有程序、dump 沒回應或出錯、超過一個 domain）的判讀 | 只在測試裡用合成的 dump 與替身指令驗過 |
 | 結束殘留的 sqlite3、解除帳號連結重新登入 | 來自更早的事故紀錄（reported），沒有用這個工具重新做過 |
 | `open -a Dropbox` | 未驗證 |
+| plugin 的 hook：訊息提到 Dropbox 卡住或不同步時，隨訊息附上這個 skill 的說明（每個 session 最多一次） | 已實測一次（Claude Code 2.1.327、macOS 27.3，2026-11-18）：說明送到模型，模型第一個動作是載入這個 skill；那則訊息本身就提到不同步，分不出是不是說明的作用。判斷規則只在 `tests/test_hooks.sh` 驗過 |
 | 其他 macOS 版本、其他 Dropbox 版本 | 未驗證。`fileproviderctl dump` 的格式沒有公開文件，版本不同可能讀不出來；讀不出來時訊號會是 `unknown` 或缺少，不會被當成比對到 |
