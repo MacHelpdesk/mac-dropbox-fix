@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.3.0 — 2026-11-18
+
+plugin 帶兩個 hook，在用得上 skill 的時候告訴 Claude（#9）。裝了很多 skill 的機器上，skill 清單只剩名稱，兩個 skill 幾乎不會自己被載入。
+
+### Hook
+
+- `UserPromptSubmit`：訊息提到 Dropbox，而且有「卡住、不同步」這一類的詞時，隨訊息附上 `mac-dropbox-fix:dropbox-fix` 的說明。
+- `PreToolUse`（Bash）：指令用到 `cp`、`mv`、`rsync`、`ditto`、`tar`、`zip`，而且指令或工作目錄指向 Dropbox 資料夾時，這個指令這一次不執行，改把 `mac-dropbox-fix:dropbox-use` 的說明回給 Claude。
+- 兩者在每個 session 最多各動作一次；指令重送就照常執行。
+- 任何失敗都放行：結束碼一律是 0，每個 hook 的 `timeout` 是 10 秒。
+- 指令在執行 plugin 自己的 `dropbox-fix.sh`（直接執行、透過 shell、或先把路徑存進變數再執行），或訊息是 `/mac-dropbox-fix:…` 開頭時，不擋、不附說明。
+- 成本：每則訊息與每個 Bash 指令啟動一次腳本，交給 hook 的資料裡沒有 `dropbox` 字樣時約 6 ms 就結束（macOS 27.3 實測）。在 Dropbox 資料夾裡開的 session，每則訊息都會多走 `osascript` 那一步，約 52 ms。
+- 記號檔放在 Claude Code 給 plugin 的資料目錄底下的 `hints/`，hook 不會刪它；沒有那個目錄時 hook 什麼都不做。
+- 認得的寫法：動詞在命令位置（開頭，或空白、`;`、`&`、`|`、`(`、反引號、引號之後，前面可以有絕對路徑）；Dropbox 路徑後面接 `/`、空白、引號、`;`、`)`、`|`、`&`、`<`、`>`、反引號或結尾。
+
+### Scripts
+
+- 新增 `plugin/scripts/skill-hint.sh`（hook 的入口）與 `plugin/scripts/hint.js`（解讀輸入並判斷）。只比對解碼後的 `prompt`、`tool_input.command`、`cwd`。
+- 新增 `plugin/hooks/hooks.json`。
+- `dropbox-fix.sh`、`kb.js`、知識庫不變。
+
+### 實測範圍
+
+Claude Code 2.1.327、macOS 27.3，`claude -p --plugin-dir plugin`，模型是 Sonnet（2026-11-18）。
+
+- 已實測：`UserPromptSubmit` 的說明送到模型（2 次）。`PreToolUse` 在指令執行前擋下，同一個 session 重送照常執行（5 次）。兩個情境在最後的程式上各重跑過一次。
+- 已實測，次數很少：擋下時的說明文字試過兩種寫法。第一種寫明「再送一次就會照常執行」，2 次中模型都直接重送、沒有載入 skill；現在的寫法寫明「動一批檔案之前先載入它」，3 次中 3 次先載入 `dropbox-use` 再跑 `local-status`（備份整個資料夾 1 次、複製單一路徑 2 次）。hook 不保證模型一定載入。
+- 只在測試裡驗過：判斷規則（`tests/test_hooks.sh` 82 項）。
+- 未驗證：從 marketplace 安裝後的 hook、subagent 裡的 hook、工作目錄在 Dropbox 資料夾裡的實際 session、其他模型。
+
 ## 0.2.0 — 2026-11-14
 
 在 Dropbox 資料夾裡動檔案之前，先確認檔案在不在這台 Mac 上（#2）。

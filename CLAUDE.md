@@ -33,7 +33,7 @@ Changes can be parked（暫存）— temporarily moved out of `docs/spectra/chan
 
 ## Purpose
 
-Dropbox 在 Mac 上不同步時的量測與修復，以及在 Dropbox 資料夾裡動檔案之前確認檔案在不在本機。四個部分：兩個 skill（`dropbox-fix`、`dropbox-use`）、一份已知問題的知識庫（JSON）、一支量測、比對、檢查與下載的腳本。
+Dropbox 在 Mac 上不同步時的量測與修復，以及在 Dropbox 資料夾裡動檔案之前確認檔案在不在本機。五個部分：兩個 skill（`dropbox-fix`、`dropbox-use`）、一份已知問題的知識庫（JSON）、一支量測、比對、檢查與下載的腳本、兩個在用得上時告訴 Claude 有這些 skill 的 hook（每則訊息與每個 Bash 指令都會啟動 hook 的腳本）。
 
 與 [`mac-printer-setup`](https://github.com/MacHelpdesk/mac-printer-setup) 同一個系列：先量測，再判讀，最後才動手。
 
@@ -57,8 +57,9 @@ mac-dropbox-fix/
 │   ├── skills/dropbox-fix/SKILL.md
 │   ├── skills/dropbox-use/SKILL.md
 │   ├── data/problems.json     # 知識庫
-│   └── scripts/dropbox-fix.sh、kb.js
-├── tests/test_probe.sh、test_kb.sh、test_local.sh、test_skill_use.sh、fixtures/
+│   ├── hooks/hooks.json       # 兩個 hook：UserPromptSubmit、PreToolUse(Bash)
+│   └── scripts/dropbox-fix.sh、kb.js、skill-hint.sh、hint.js
+├── tests/test_probe.sh、test_kb.sh、test_local.sh、test_skill_use.sh、test_hooks.sh、fixtures/
 ├── docs/spectra/              # Spectra 的規格與 change
 ├── scripts/                   # 開發用的檢查腳本，不會被安裝
 └── README.md、CLAUDE.md、AGENTS.md、CHANGELOG.md、LICENSE
@@ -75,6 +76,8 @@ marketplace 索引在 [`MacHelpdesk/mac-helpdesk`](https://github.com/MacHelpdes
 | `plugin/scripts/dropbox-fix.sh local-status PATH` | Dropbox 資料夾裡的檔數、僅線上的檔數與大小、剩餘空間 | 不會 |
 | `plugin/scripts/dropbox-fix.sh download PATH` | 逐檔讀取僅線上的檔，讓 Dropbox 下載 | 會：檔案下載到本機，用掉網路與磁碟；不修改、搬移或刪除檔案 |
 | `plugin/scripts/kb.js` | 由 `dropbox-fix.sh` 呼叫，用 `osascript -l JavaScript` 讀 JSON | 不會 |
+| `plugin/scripts/skill-hint.sh prompt`／`bash` | hook 的入口：從 stdin 讀 hook 的輸入，印出零個或一個 JSON 物件，結束碼一律是 0 | 會：在 plugin 的資料目錄寫空的記號檔；`bash` 模式每個 session 會讓一個指令被擋一次 |
+| `plugin/scripts/hint.js` | 由 `skill-hint.sh` 呼叫，解讀 hook 的輸入並判斷；詞表、動詞、路徑的封閉列舉在檔案開頭 | 不會 |
 
 測試用替身指令取代 `pgrep`、`fileproviderctl`、`kill`（`test_probe.sh`）與 `stat`、`df`、`dd`（`test_local.sh`），不碰真的 daemon 與 Dropbox：
 
@@ -83,6 +86,7 @@ bash tests/test_probe.sh
 bash tests/test_kb.sh
 bash tests/test_local.sh       # local-status、download
 bash tests/test_skill_use.sh   # dropbox-use 的四張表與複製標籤
+bash tests/test_hooks.sh       # hook 腳本、hooks.json、文件裡對 hook 的說明
 ```
 
 ## 紀律
@@ -102,7 +106,10 @@ bash tests/test_skill_use.sh   # dropbox-use 的四張表與複製標籤
 - **`download` 的每一次讀取都有上限**。讀取在背景跑，`DROPBOX_FIX_READ_WAIT` 秒後 TERM，有上限地等，再 KILL；任何地方都不可以無限期 `wait` 一個讀取（真的佔位檔讀取卡在核心裡時，TERM 不一定馬上生效）。`read_one` 要直接呼叫，不可以放在 `$(...)` 裡：它設定的 `READ_PID` 要留在主 shell，`cleanup` 才結束得了它。
 - **僅線上只看 `dataless` flag，不看大小**。佔位檔的 `st_size` 是完整大小。`find` 不加 `-L`；直接給的檔案路徑是 symlink 時拒絕。
 - **`download` 印出的路徑要過 `relative`**：控制字元換成 `?`，否則檔名能在 stdout 多造一行 `key=value`。不要改用 `printf %q`，它會把中文檔名變成跳脫碼。
-- **`kb.js` 跑在 JXA**：沒有 `console.log` 以外的標準輸出函式，輸出一律走檔案開頭的 `out`／`err`。語法維持 ES5，JXA 對較新的語法支援不一致。
+- **hook 任何失敗都放行，而且每個 session 最多擋一次**。`skill-hint.sh` 的結束碼一律是 0；先用 noclobber 建立記號檔，建立成功才印出擋下的 JSON。不要把這個順序倒過來，也不要加會讓它在失敗時擋下的路徑。**`skill-hint.sh` 不可以刪記號檔**（依時間清理也不行）：記號被刪，接回來的舊 session 就會被擋第二次。記號目錄只有兩個來源：`DROPBOX_FIX_HINT_DIR`（測試用）與 `CLAUDE_PLUGIN_DATA/hints`，都沒有就什麼都不印。`hooks.json` 的每個 hook 都要有 `timeout`（`PreToolUse` 的預設是 600 秒）。
+- **hook 只比對解碼後的 `prompt`、`tool_input.command`、`cwd`**。原始輸入裡的 `transcript_path` 與 `description` 也可能含 Dropbox；`skill-hint.sh` 對原始輸入做的只是「要不要啟動 `osascript`」的粗篩；原始輸入裡有 `\u00` 加兩個十六進位數字時一律交給 `hint.js`，因為這種跳脫可以把粗篩要找的字藏起來；粗篩之前只用 bash 內建指令（不用 `cat`、`dirname`）。測試用的家目錄是固定的假字串，不可以改回暫存目錄底下的路徑（路徑裡剛好有動詞字樣時，計數的測試會失敗）。
+- **改 `hint.js` 開頭的三個列舉（詞表、動詞、子命令）時**，同時改四處：規格 `skill-trigger-hooks`、`tests/test_hooks.sh`、README〈plugin 會自己做的事〉、CHANGELOG。擋下時的說明文字會影響模型載不載入 skill（實測過兩種寫法，結果不同），改了要用 `claude -p --plugin-dir plugin` 重跑。
+- **`kb.js` 與 `hint.js` 跑在 JXA**：沒有 `console.log` 以外的標準輸出函式，輸出一律走檔案開頭的 `out`／`err`。語法維持 ES5，JXA 對較新的語法支援不一致。
 
 ## Git 流程
 

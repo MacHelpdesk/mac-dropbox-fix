@@ -1,0 +1,28 @@
+{
+  "description": "Tells the model about the dropbox-fix and dropbox-use skills at the moment they apply. Each is announced at most once per session; a failing hook never blocks a prompt or a command.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/bash \"${CLAUDE_PLUGIN_ROOT}/scripts/skill-hint.sh\" prompt",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/bash \"${CLAUDE_PLUGIN_ROOT}/scripts/skill-hint.sh\" bash",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
